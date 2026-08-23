@@ -1,14 +1,16 @@
 """
 =============================================================================
-🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (PRO CLEAN & SECURITY EDITION)
+🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (PRO CLEAN & MASTER ADMIN)
 =============================================================================
 Author: Cybersecurity & Telegram Defense Bot
+Super Admin: 240224709 (Full Master Permissions Everywhere)
 Features:
+- Master Super Admin (ID: 240224709) មានសិទ្ធិពេញលេញ ១០០% គ្រប់ទីកន្លែង
 - Work-Friendly Link Policy (អនុញ្ញាតឱ្យផ្ញើ Link ការងារបានធម្មតា ១០០%)
-- 🧹 Auto-Delete Service Messages (លុបសារ "User joined/left" ស្វ័យប្រវត្តិ កុំឱ្យរញ៉េរញ៉ៃ)
-- ⏱️ Self-Destructing Bot Messages (សារ Bot នឹងលុបបាត់ទៅវិញស្វ័យប្រវត្តិក្នង ៦០ វិនាទី)
+- 🧹 Auto-Delete Service Messages (លុបសារ "User joined/left" ស្វ័យប្រវត្តិ)
+- ⏱️ Self-Destructing Bot Messages (សារ Bot លុបបាត់ទៅវិញក្នុង ៦០ វិនាទី)
 - 🌊 Smart Anti-Flood & Spam Shield (ទប់ស្កាត់ការបាចសារ/Sticker ញាប់ពេក)
-- 👑 Group Admin Authorization (មានតែ Admin ទើបបញ្ជា Bot បាន)
+- 👑 Group Admin & Master Super Admin Authorization
 - ⌨️ Bottom Reply Keyboard (ប៊ូតុងជាប់ខាងក្រោមកន្លែងសរសេរ)
 - 🚨 Instant Blacklist Deletion (.apk, .exe, .scr, .bat, .sh, .jpg.apk, etc.)
 - 🌐 VirusTotal Cloud SHA-256 Hash Scanner
@@ -48,16 +50,23 @@ from telegram.ext import (
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY", "").strip()
-SUPER_ADMIN_ID = os.getenv("SUPER_ADMIN_ID", "").strip()
+
+# កំណត់ Super Admin IDs (បញ្ចូល ID: 240224709 ជា Master Admin អចិន្ត្រៃយ៍)
+SUPER_ADMIN_IDS = {"240224709"}
+raw_env_admins = os.getenv("SUPER_ADMIN_ID", os.getenv("ADMIN_ID", "")).split(",")
+for aid in raw_env_admins:
+    if aid.strip():
+        SUPER_ADMIN_IDS.add(aid.strip())
+
 PUNISHMENT_MODE = os.getenv("PUNISHMENT_MODE", "MUTE").upper().strip()
 MUTE_DURATION_HOURS = int(os.getenv("MUTE_DURATION_HOURS", "24"))
 
 # Settings សម្រាប់ភាពស្អាតក្នុង Group
 AUTO_DELETE_SERVICE_MSGS = os.getenv("AUTO_DELETE_SERVICE_MSGS", "true").lower() == "true"
-BOT_MSG_DELETE_SECONDS = int(os.getenv("BOT_MSG_DELETE_SECONDS", "60"))  # សារ Bot លុបបាត់វិញក្នុង 60s
+BOT_MSG_DELETE_SECONDS = int(os.getenv("BOT_MSG_DELETE_SECONDS", "60"))
 ANTI_FLOOD_ENABLED = os.getenv("ANTI_FLOOD_ENABLED", "true").lower() == "true"
-FLOOD_MAX_MSGS = int(os.getenv("FLOOD_MAX_MSGS", "5"))          # ផ្ញើលើស 5 សារ
-FLOOD_WINDOW_SECONDS = int(os.getenv("FLOOD_WINDOW_SECONDS", "3")) # ក្នុងរយៈពេល 3 វិនាទី
+FLOOD_MAX_MSGS = int(os.getenv("FLOOD_MAX_MSGS", "5"))
+FLOOD_WINDOW_SECONDS = int(os.getenv("FLOOD_WINDOW_SECONDS", "3"))
 
 CONFIG_FILE = "groups_config.json"
 
@@ -70,7 +79,7 @@ logger = logging.getLogger("MalwareGuardBot")
 
 # In-Memory Trackers
 SCAN_CACHE = {}
-FLOOD_TRACKER = {}  # { (chat_id, user_id): [timestamp1, timestamp2, ...] }
+FLOOD_TRACKER = {}
 
 
 # ==================== CONFIG & STORAGE ====================
@@ -95,21 +104,28 @@ GROUPS_CONFIG = load_groups_config()
 
 
 def is_super_admin(user_id: int) -> bool:
-    if not SUPER_ADMIN_ID:
-        return False
-    admin_ids = [aid.strip() for aid in SUPER_ADMIN_ID.split(",") if aid.strip()]
-    return str(user_id) in admin_ids
+    """ពិនិត្យមើលថាតើជា Master Super Admin ឬទេ (ID: 240224709)"""
+    return str(user_id) in SUPER_ADMIN_IDS
 
 
 async def is_authorized_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """
+    ពិនិត្យសិទ្ធិ៖ Super Admin (240224709) មានសិទ្ធិពេញលេញ ១០០% គ្រប់ទីកន្លែង
+    """
     user = update.effective_user
     chat = update.effective_chat
     if not user:
         return False
+
+    # 1. Master Super Admin មានសិទ្ធិគ្រប់កន្លែងទាំងអស់
     if is_super_admin(user.id):
         return True
+
+    # 2. បើនៅក្នុង Chat ផ្ទាល់ខ្លួន (Private Chat)
     if chat.type == "private":
         return True
+
+    # 3. បើនៅក្នុង Group ឆែកមើលថាតើគាត់ជា Admin នៃ Group នោះឬទេ
     try:
         member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user.id)
         return member.status in ["creator", "administrator"]
@@ -128,7 +144,6 @@ def is_group_shield_active(chat_id: int) -> bool:
 # ==================== HELPER: AUTO-DELETE BOT MESSAGES ====================
 
 async def delete_message_after_delay(bot, chat_id: int, message_id: int, delay_seconds: int):
-    """លុបសារដោយស្វ័យប្រវត្តិតាមរយៈពេលកំណត់ ដើម្បីកុំឱ្យស្ទះ Group"""
     await asyncio.sleep(delay_seconds)
     try:
         await bot.delete_message(chat_id=chat_id, message_id=message_id)
@@ -137,7 +152,6 @@ async def delete_message_after_delay(bot, chat_id: int, message_id: int, delay_s
 
 
 async def send_temp_message(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str, delay: int = BOT_MSG_DELETE_SECONDS, **kwargs):
-    """ផ្ញើសារដែលនឹងរលាយបាត់ទៅវិញដោយស្វ័យប្រវត្តិ (Self-Destructing)"""
     try:
         msg = await context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
         asyncio.create_task(delete_message_after_delay(context.bot, chat_id, msg.message_id, delay))
@@ -261,6 +275,10 @@ async def check_virustotal_hash(file_bytes: bytes) -> dict:
 # ==================== ACTIONS & PUNISHMENT ====================
 
 async def punish_user(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE, duration_hours: int = MUTE_DURATION_HOURS) -> str:
+    # Super Admin can NEVER be punished
+    if is_super_admin(user_id):
+        return "👑 (Super Admin Protected)"
+
     try:
         if PUNISHMENT_MODE == "KICK":
             await context.bot.ban_chat_member(chat_id=chat_id, user_id=user_id)
@@ -292,9 +310,6 @@ async def punish_user(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_
 # ==================== 🧹 AUTO-DELETE SERVICE MESSAGES ====================
 
 async def handle_service_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    លុបសារ System Service Messages ("User joined", "User left", "Pinned message") ភ្លាមៗ
-    """
     if not AUTO_DELETE_SERVICE_MSGS:
         return
     message = update.effective_message
@@ -308,9 +323,6 @@ async def handle_service_messages(update: Update, context: ContextTypes.DEFAULT_
 # ==================== 🌊 SMART ANTI-FLOOD HANDLER ====================
 
 async def handle_anti_flood(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """
-    ទប់ស្កាត់ការបាចសារ Spam / Stickers ញាប់ពេក (Flood Protection)
-    """
     if not ANTI_FLOOD_ENABLED:
         return False
 
@@ -319,8 +331,8 @@ async def handle_anti_flood(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not chat or not user or chat.type not in ["group", "supergroup"]:
         return False
 
-    # Admin មិនជាប់ Anti-Flood ឡើយ
-    if await is_authorized_admin(update, context):
+    # Super Admin and Group Admins are completely immune to anti-flood
+    if is_super_admin(user.id) or await is_authorized_admin(update, context):
         return False
 
     now = time.time()
@@ -406,7 +418,7 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
             f"⚡ **ចំណាត់ការ:** សារត្រូវបានលុបភ្លាមៗ | {action_taken}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💡 **ការណែនាំសុវត្ថិភាព:** សូមប្រុងប្រយ័ត្នខ្ពស់ចំពោះហ្វាល់ដែលបង្កប់កន្ទុយ `.apk` ឬ `.exe` ព្រោះវាអាចជា Banking Trojan លួចគណនីធនាគាររបស់អ្នក!\n\n"
-            f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល {BOT_MSG_DELETE_SECONDS} វិនាទី ដើម្បីរក្សាភាពស្អាតក្នុង Group)*"
+            f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល {BOT_MSG_DELETE_SECONDS} វិនាទី)*"
         )
 
         await send_temp_message(
@@ -455,7 +467,7 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
 # ==================== TEXT MESSAGE & FLOOD MONITOR ====================
 
 async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ត្រួតពិនិត្យសារអក្សរធម្មតា និងប៊ូតុងចុច (Link ការងារត្រូវបានអនុញ្ញាត ១០០%)"""
+    """ត្រួតពិនិត្យសារអក្សរធម្មតា និងប៊ូតុងចុច"""
     if await handle_anti_flood(update, context):
         return
 
@@ -467,20 +479,26 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
         await myid_command(update, context)
 
 
-# ==================== COMMAND HANDLERS (ADMIN ONLY) ====================
+# ==================== COMMAND HANDLERS ====================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    role_tag = "👑 **(Master Super Admin)**" if is_super_admin(user.id) else "🛡️ (Group Member/Admin)"
+
     text = (
-        f"🤖 **សួស្តី {user.first_name}! ខ្ញុំជា Bot ការពារមេរោគ និងរក្សាភាពស្អាតក្នុង Group!**\n\n"
+        f"🤖 **សួស្តី {user.first_name}! {role_tag}**\n\n"
+        "ខ្ញុំជា Bot ការពារមេរោគ និងគ្រប់គ្រងសុវត្ថិភាព Group Telegram!\n\n"
         "🛡️ **មុខងារការពារ និងគ្រប់គ្រង៖**\n"
         "✅ ស្កេន និងលុប `.apk`, `.exe`, `.scr`, `.bat`, `.sh` ដោយស្វ័យប្រវត្តិ\n"
         "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (Double Extension ដូចជា `.jpg.apk`, `.pdf.apk`)\n"
         "✅ ឆែកស្កេន Cloud Hash លើ VirusTotal សម្រាប់ហ្វាល់ `.zip` និង `.rar`\n"
-        "✅ 🧹 លុបសារ System Service Messages (Join/Leave) មិនឱ្យរញ៉េរញ៉ៃ\n"
+        "✅ 🧹 លុបសារ System Service Messages (Join/Leave)\n"
         "✅ 🌊 ប្រព័ន្ធ Anti-Flood ទប់ស្កាត់ការបាច Spam\n"
         "✅ ⏱️ សារ Bot នឹងលុបបាត់ទៅវិញស្វ័យប្រវត្តិក្នង ៦០ វិនាទី\n\n"
-        "🔐 **ចំណាំ៖** មានតែ **Admin នៃក្រុមនីមួយៗ** ប៉ុណ្ណោះ ដែលមានសិទ្ធិបញ្ជា និងឆែកស្ថានភាព Bot។"
+        "⚙️ **ពាក្យបញ្ជាសម្រាប់ Admin៖**\n"
+        "👉 `/admin` : ផ្ទាំងគ្រប់គ្រង Dashboard បើក/បិទ Bot តាម Group\n"
+        "👉 `/status` : ឆែកស្ថានភាពប្រព័ន្ធការពារ\n"
+        "👉 `/myid` : មើលលេខ ID ផ្ទាល់ខ្លួន"
     )
     await update.message.reply_text(
         text=text,
@@ -493,7 +511,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
 
-    if not await is_authorized_admin(update, context):
+    # Master Super Admin 240224709 always has access
+    if not is_super_admin(user.id) and not await is_authorized_admin(update, context):
         msg = await update.message.reply_text(
             f"⛔ **សុំទោស {user.first_name}!**\nមានតែ **Admin នៃក្រុមនេះ** ប៉ុណ្ណោះ ទើបមានសិទ្ធិបញ្ជា និងឆែកស្ថានភាព Bot បាន។",
             parse_mode=ParseMode.MARKDOWN
@@ -518,6 +537,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     group_name = chat.title if chat.type in ["group", "supergroup"] else "Chat ផ្ទាល់ខ្លួន (Private Chat)"
     chat_type_kh = "ក្រុម Telegram (Group)" if chat.type in ["group", "supergroup"] else "ផ្ទាំងសារផ្ទាល់ខ្លួន (Private)"
+    admin_status = "👑 Master Super Admin" if is_super_admin(user.id) else "🛡️ Group Admin"
 
     text = (
         "🛡️ **[ព័ត៌មាន និងស្ថានភាពសុវត្ថិភាព BOT STATUS]** 🛡️\n"
@@ -525,7 +545,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👥 **ឈ្មោះក្រុម:** `{group_name}`\n"
         f"🆔 **លេខ Group ID:** `{chat.id}`\n"
         f"🏷️ **ប្រភេទ:** {chat_type_kh}\n"
-        f"👑 **Admin ដែលឆែក:** {user.full_name} (`ID: {user.id}`)\n"
+        f"👤 **Admin ពិនិត្យ:** {user.full_name} (`{admin_status}`)\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"🔰 **ស្ថានភាពការពារ:** {shield_status_str}\n"
         f"⚡ **ប្រព័ន្ធស្កេនមេរោគ (Local):** ✅ សកម្ម (.apk, .exe, .scr, .bat, .sh, .jpg.apk)\n"
@@ -534,7 +554,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌊 **Anti-Flood Shield:** ✅ បើកដំណើរការ\n"
         f"⚖️ **វិធានការលើអ្នកល្មើស:** លុបសារមេរោគ + {PUNISHMENT_MODE} {MUTE_DURATION_HOURS} ម៉ោង\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 *(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល {BOT_MSG_DELETE_SECONDS} វិនាទី ដើម្បីកុំឱ្យស្ទះ Group)*"
+        f"💡 *(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល {BOT_MSG_DELETE_SECONDS} វិនាទី)*"
     )
 
     if chat.type in ["group", "supergroup"]:
@@ -547,14 +567,13 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
 
-    if not await is_authorized_admin(update, context):
+    if not is_super_admin(user.id) and not await is_authorized_admin(update, context):
         msg = await update.message.reply_text("⛔ មានតែ Admin នៃក្រុមនេះទេ ទើបអាចឆែកមើលព័ត៌មានបាន!")
         if chat.type in ["group", "supergroup"]:
             asyncio.create_task(delete_message_after_delay(context.bot, chat.id, msg.message_id, 10))
         return
 
-    is_admin = is_super_admin(user.id)
-    admin_tag = "👑 **(Bot Super Admin)**" if is_admin else "🛡️ (Group Admin)"
+    admin_tag = "👑 **(Master Super Admin)**" if is_super_admin(user.id) else "🛡️ (Group Admin)"
 
     text = (
         f"🆔 **ព័ត៌មានអត្តសញ្ញាណ និង GROUP ID:**\n\n"
@@ -573,8 +592,9 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def protect_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
+    user = update.effective_user
     if chat.type in ["group", "supergroup"]:
-        if not await is_authorized_admin(update, context):
+        if not is_super_admin(user.id) and not await is_authorized_admin(update, context):
             return
         chat_key = str(chat.id)
         if chat_key not in GROUPS_CONFIG:
@@ -587,8 +607,9 @@ async def protect_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def protect_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
+    user = update.effective_user
     if chat.type in ["group", "supergroup"]:
-        if not await is_authorized_admin(update, context):
+        if not is_super_admin(user.id) and not await is_authorized_admin(update, context):
             return
         chat_key = str(chat.id)
         if chat_key not in GROUPS_CONFIG:
@@ -629,6 +650,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     text = (
         "⚙️ **[ផ្ទាំងគ្រប់គ្រង MASTER BOT DASHBOARD]** ⚙️\n\n"
+        "👑 **សូមស្វាគមន៍ Master Super Admin (ID: 240224709)**\n\n"
         "គ្រប់គ្រងបើក/បិទប្រព័ន្ធការពារតាម Group នីមួយៗ៖\n"
     )
     await update.message.reply_text(
@@ -671,7 +693,7 @@ def main():
         print("❌ Error: សូមកំណត់ TELEGRAM_BOT_TOKEN ក្នុងឯកសារ .env ជាមុនសិន!")
         return
 
-    print("🛡️ Security Bot is starting with Auto-Clean, Anti-Flood & Work-Friendly Link mode...")
+    print("🛡️ Security Bot is starting with Master Super Admin (240224709)...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     # Commands
@@ -686,17 +708,17 @@ def main():
     # Master Admin Callback
     app.add_handler(CallbackQueryHandler(admin_button_callback))
 
-    # 🧹 Auto-Delete Service messages ("User joined", "User left", "Pinned message", etc.)
+    # 🧹 Auto-Delete Service messages
     app.add_handler(MessageHandler(filters.StatusUpdate.ALL, handle_service_messages))
 
-    # File Monitor (Malware & Trojans)
+    # File Monitor
     app.add_handler(MessageHandler(filters.Document.ALL, handle_incoming_file))
 
-    # Regular Messages & Anti-Flood Monitor (Links are 100% allowed!)
+    # Regular Messages & Anti-Flood Monitor
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_regular_messages))
     app.add_handler(MessageHandler(filters.Sticker.ALL | filters.ANIMATION, handle_regular_messages))
 
-    print("✅ Bot is fully active and protecting your groups cleanly!")
+    print("✅ Bot is fully active and Master Super Admin is recognized!")
     app.run_polling()
 
 

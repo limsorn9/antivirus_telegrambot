@@ -1,0 +1,48 @@
+name: Telegram Security Bot
+
+on:
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+  schedule:
+    # Run every 5 hours to restart before the GitHub Actions 6-hour runner limit
+    - cron: '0 */5 * * *'
+  push:
+    branches:
+      - main
+      - master
+
+# Ensure only one instance of the bot is running at a time to prevent Telegram 409 Conflict
+concurrency:
+  group: telegram-security-bot-instance
+  cancel-in-progress: true
+
+jobs:
+  run-bot:
+    name: Run Telegram Security Bot
+    runs-on: ubuntu-latest
+    timeout-minutes: 350 # Max runtime before clean exit and re-trigger
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start Security Bot
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+          PUNISHMENT_MODE: ${{ secrets.PUNISHMENT_MODE || 'MUTE' }}
+          MUTE_DURATION_HOURS: ${{ secrets.MUTE_DURATION_HOURS || '24' }}
+          ADMIN_ID: ${{ secrets.ADMIN_ID }}
+          PYTHONUNBUFFERED: "1"
+        run: |
+          python telegram_security_bot.py

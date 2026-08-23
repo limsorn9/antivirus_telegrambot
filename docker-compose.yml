@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  telegram-security-bot:
+    build: .
+    container_name: telegram_security_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1

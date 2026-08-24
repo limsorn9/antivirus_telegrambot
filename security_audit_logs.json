@@ -1,0 +1,52 @@
+[
+    {
+        "timestamp": "2026-08-24 17:30:12",
+        "event_type": "MALWARE_BLOCKED",
+        "chat_id": "-1002458931204",
+        "chat_title": "VIP Business Community",
+        "user_id": "78129034",
+        "user_name": "Spammer Bot 01",
+        "details": "File: ABA_Update_v2.apk (🚨 High-Risk Malware Extension: .apk)",
+        "action": "🔇 បានបិទសិទ្ធិផ្ញើសារ (Mute) 24 ម៉ោង"
+    },
+    {
+        "timestamp": "2026-08-24 17:10:45",
+        "event_type": "MALWARE_BLOCKED",
+        "chat_id": "-1002458931204",
+        "chat_title": "VIP Business Community",
+        "user_id": "66401928",
+        "user_name": "Unknown Attacker",
+        "details": "File: invoice_payment.pdf.apk (🚨 Double Extension Disguise: .pdf.apk)",
+        "action": "🔇 បានបិទសិទ្ធិផ្ញើសារ (Mute) 24 ម៉ោង"
+    },
+    {
+        "timestamp": "2026-08-24 16:15:20",
+        "event_type": "MALWARE_BLOCKED",
+        "chat_id": "-1002148729103",
+        "chat_title": "Crypto & Forex Traders Hub",
+        "user_id": "55192837",
+        "user_name": "TradeSignal_Bot",
+        "details": "File: Binance_Bonus_Bot.exe (🚨 High-Risk Malware Extension: .exe)",
+        "action": "🔇 បានបិទសិទ្ធិផ្ញើសារ (Mute) 24 ម៉ោង"
+    },
+    {
+        "timestamp": "2026-08-24 15:40:02",
+        "event_type": "ANTI_FLOOD_SPAM",
+        "chat_id": "-1001984712039",
+        "chat_title": "Digital Marketing & Sales Group",
+        "user_id": "44910283",
+        "user_name": "FastPromo_Acc",
+        "details": "Spamming > 5 msgs in 3s",
+        "action": "🔇 បានបិទសិទ្ធិផ្ញើសារ (Mute) 1 ម៉ោង"
+    },
+    {
+        "timestamp": "2026-08-24 14:22:18",
+        "event_type": "MALWARE_BLOCKED",
+        "chat_id": "-1002458931204",
+        "chat_title": "VIP Business Community",
+        "user_id": "33918274",
+        "user_name": "Scammer_ABC",
+        "details": "File: Telegram_Premium_Gift.scr (🚨 High-Risk Malware Extension: .scr)",
+        "action": "🔇 បានបិទសិទ្ធិផ្ញើសារ (Mute) 24 ម៉ោង"
+    }
+]

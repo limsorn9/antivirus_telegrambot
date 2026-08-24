@@ -1,17 +1,18 @@
 """
 =============================================================================
-🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (STRICT ADMIN LOCK EDITION)
+🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (COMMERCIAL LICENSE EDITION)
 =============================================================================
 Author: Cybersecurity & Telegram Defense Bot
 Master Super Admin: 240224709 (Global Authority Everywhere)
 
-Security Enforcement:
-- 🔒 STRICT LOCK: សមាជិកធម្មតា (Non-Admin) គ្មានសិទ្ធិបញ្ជា ឬឆែក Bot ដាច់ខាត ១០០%
-- 👑 ONLY Group Admins & Master Super Admin have command rights
-- ⏱️ 60-Second Strict Auto-Delete: គ្រប់សាររបស់ Bot ក្នុង Group រលាយបាត់ក្នុង 60s
-- 📜 Audit Logging & Threat History
-- 📋 Group Directory & Services Registry
-- 💼 Work-Friendly Link & Document Policy (ឯកសារការងារ & Link មិនលុបដាច់ខាត)
+Business & Security Features:
+1. 🔐 Master License System: ក្រុមដែលមិនទាន់ទិញសិទ្ធិ Bot មិនការពារឡើយ
+2. 📢 2x/Day Upsell Reminders: លោតសារដាស់តឿនឱ្យទិញសិទ្ធិ ២ ដងក្នុងមួយថ្ងៃ (លុបក្នុង 60s)
+3. 🆔 Limited Group Admin Access: Admin នៃក្រុមដែលគ្មានសិទ្ធិ អាចឆែកមើលបានតែលេខ Group ID ប៉ុណ្ណោះ
+4. ⏱️ 60-Second Strict Auto-Delete: គ្រប់សារទាំងអស់របស់ Bot ក្នុង Group រលាយបាត់ក្នុង 60s
+5. 🔒 Strict Admin Lock: សមាជិកទូទៅគ្មានសិទ្ធិបញ្ជា Bot ដាច់ខាត
+6. 📜 Audit Logging & Registry: ចងក្រងប្រវត្តិ និងបញ្ជីក្រុមដែលបានអនុញ្ញាត
+7. 💼 Work-Friendly: Link & Document ការងារ មិនលុបដាច់ខាត
 =============================================================================
 """
 
@@ -39,6 +40,7 @@ from dotenv import load_dotenv
 from telegram import (
     Update,
     ChatPermissions,
+    ChatMemberUpdated,
     ReplyKeyboardMarkup,
     KeyboardButton,
     InlineKeyboardButton,
@@ -51,6 +53,7 @@ from telegram.ext import (
     MessageHandler,
     CommandHandler,
     CallbackQueryHandler,
+    ChatMemberHandler,
     filters,
 )
 
@@ -116,7 +119,6 @@ AUDIT_LOGS = load_json_file(AUDIT_LOG_FILE, [])
 
 
 def record_audit_event(event_type: str, chat_id: int, chat_title: str, user_id: int, user_name: str, details: str, action: str):
-    """កត់ត្រាប្រវត្តិហេតុការណ៍សន្តិសុខ"""
     new_entry = {
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "event_type": event_type,
@@ -133,75 +135,40 @@ def record_audit_event(event_type: str, chat_id: int, chat_title: str, user_id: 
     save_json_file(AUDIT_LOG_FILE, AUDIT_LOGS)
 
 
-def register_or_update_group(chat):
-    """កត់ត្រា និងធ្វើបច្ចុប្បន្នភាពបញ្ជីឈ្មោះក្រុម"""
-    chat_key = str(chat.id)
-    if chat.type in ["group", "supergroup"]:
-        if chat_key not in GROUPS_CONFIG:
-            GROUPS_CONFIG[chat_key] = {
-                "title": chat.title or "Unknown Group",
-                "chat_id": chat.id,
-                "added_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "is_enabled": True,
-                "services": {
-                    "malware_shield": "Active (សកម្ម)",
-                    "double_ext_defense": "Active (សកម្ម)",
-                    "auto_clean_service_msgs": "Active (សកម្ម)",
-                    "anti_flood_shield": "Active (សកម្ម)",
-                    "virustotal_cloud": "Active (សកម្ម)",
-                    "strict_admin_lock": "Active (សកម្ម)",
-                    "auto_delete_60s": "Active (សកម្ម)"
-                },
-                "threats_blocked_count": 0
-            }
-            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
-        else:
-            if GROUPS_CONFIG[chat_key].get("title") != chat.title:
-                GROUPS_CONFIG[chat_key]["title"] = chat.title or "Unknown Group"
-                save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
-
-
-# ==================== STRICT ADMIN AUTHORIZATION ====================
+# ==================== MASTER APPROVAL & PERMISSIONS ====================
 
 def is_super_admin(user_id: int) -> bool:
     """ពិនិត្យមើលថាតើជា Master Super Admin ឬទេ (ID: 240224709)"""
     return str(user_id) in SUPER_ADMIN_IDS
 
 
+def is_group_authorized(chat_id: int) -> bool:
+    """ពិនិត្យថាតើ Group នេះ ត្រូវបាន Master Super Admin អនុញ្ញាតសិទ្ធិ (Approved) ឬនៅ"""
+    chat_key = str(chat_id)
+    if chat_key in GROUPS_CONFIG:
+        return GROUPS_CONFIG[chat_key].get("is_authorized", False) and GROUPS_CONFIG[chat_key].get("is_enabled", False)
+    return False
+
+
 async def is_authorized_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """
-    ពិនិត្យសិទ្ធិតឹងរ៉ឹងបំផុត (STRICT LOCK)៖
-    - Master Super Admin (ID: 240224709) ➡️ សិទ្ធិពេញលេញ ១០០% គ្រប់ទីកន្លែង
-    - Admin/Creator នៃ Group នោះ ➡️ សិទ្ធិក្នុង Group របស់ខ្លួន
-    - សមាជិកធម្មតា (Non-Admin) ➡️ គ្មានសិទ្ធិដាច់ខាត (Denied 100%)
-    """
+    """ពិនិត្យសិទ្ធិ Admin ក្នុង Group"""
     user = update.effective_user
     chat = update.effective_chat
     if not user or not chat:
         return False
 
-    # 1. Master Super Admin មានសិទ្ធិគ្រប់កន្លែងទាំងអស់
     if is_super_admin(user.id):
         return True
 
-    # 2. ក្នុង Chat ផ្ទាល់ខ្លួន (Private Chat)
     if chat.type == "private":
         return True
 
-    # 3. ក្នុង Group ឆែកមើលថាតើជា Admin ឬ Creator នៃ Group នោះឬទេ
     try:
         member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user.id)
         return member.status in ["creator", "administrator"]
     except Exception as e:
-        logger.error(f"Error verifying admin status for user {user.id}: {e}")
+        logger.error(f"Error checking admin status: {e}")
         return False
-
-
-def is_group_shield_active(chat_id: int) -> bool:
-    chat_key = str(chat_id)
-    if chat_key in GROUPS_CONFIG:
-        return GROUPS_CONFIG[chat_key].get("is_enabled", True)
-    return True
 
 
 # ==================== ⏱️ 60-SECOND AUTO-DELETE HELPER ====================
@@ -225,14 +192,132 @@ async def send_auto_delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: 
         return None
 
 
+# ==================== 📢 TWICE-DAILY REMINDER BACKGROUND JOB ====================
+
+async def daily_reminder_loop(app):
+    """
+    រត់ស្វ័យប្រវត្តិក្នង Background៖ ឆែកមើល Group ដែលមិនទាន់មានសិទ្ធិ
+    ហើយផ្ញើសារដាស់តឿនឱ្យទិញសិទ្ធិប្រើប្រាស់ ២ ដងក្នុងមួយថ្ងៃ (រៀងរាល់ ១២ ម៉ោងម្ដង)
+    """
+    logger.info("Daily Reminder background job started (2x per day for unauthorized groups)...")
+    while True:
+        try:
+            now_ts = time.time()
+            for chat_id_str, gdata in list(GROUPS_CONFIG.items()):
+                is_auth = gdata.get("is_authorized", False)
+                # ប្រសិនបើ Group មិនទាន់បានទិញសិទ្ធិ / មិនទាន់អនុញ្ញាត
+                if not is_auth:
+                    last_reminder = gdata.get("last_reminder_ts", 0)
+                    # 12 ម៉ោង = 43200 វិនាទី (២ ដងក្នុង ១ ថ្ងៃ)
+                    if now_ts - last_reminder >= 43200:
+                        chat_id = int(chat_id_str)
+                        reminder_text = (
+                            "📢 **[ការដាស់តឿនសុវត្ថិភាព - TELEGUARD SECURITY]** 📢\n"
+                            "━━━━━━━━━━━━━━━━━━━━\n"
+                            "⚠️ **ក្រុមនេះមិនទាន់បានបើកដំណើរការសេវាកម្មការពារមេរោគនៅឡើយទេ!**\n"
+                            f"🆔 **លេខ Group ID របស់អ្នក៖** `{chat_id_str}`\n\n"
+                            "🛡️ **អត្ថប្រយោជន៍ពេលទិញសិទ្ធិប្រើប្រាស់៖**\n"
+                            "• ស្កេន និងលុបមេរោគលួចលុយធនាគារ (.apk, .exe, .scr, .bat)\n"
+                            "• ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (.jpg.apk, .pdf.apk)\n"
+                            "• ប្រព័ន្ធ Anti-Flood & Clean Group ស្អាតស្អំ\n\n"
+                            "👉 **សូមទាក់ទង Master Super Admin (ID: `240224709`) ដើម្បីទិញអាជ្ញាប័ណ្ណប្រើប្រាស់!**\n"
+                            "━━━━━━━━━━━━━━━━━━━━\n"
+                            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៦០ វិនាទី)*"
+                        )
+                        try:
+                            msg = await app.bot.send_message(chat_id=chat_id, text=reminder_text, parse_mode=ParseMode.MARKDOWN)
+                            asyncio.create_task(delete_message_after_delay(app.bot, chat_id, msg.message_id, BOT_MSG_DELETE_SECONDS))
+                            GROUPS_CONFIG[chat_id_str]["last_reminder_ts"] = now_ts
+                            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+                            logger.info(f"Sent 2x/day reminder to unauthorized group {chat_id_str}")
+                        except Exception as e:
+                            logger.error(f"Cannot send reminder to {chat_id_str}: {e}")
+        except Exception as err:
+            logger.error(f"Error in daily_reminder_loop: {err}")
+
+        # ឆែកមើលរៀងរាល់ ៣០ នាទីម្ដង
+        await asyncio.sleep(1800)
+
+
+# ==================== NEW GROUP NOTIFICATION TO MASTER ADMIN ====================
+
+async def notify_master_admin_new_group(context: ContextTypes.DEFAULT_TYPE, chat, added_by_user=None):
+    added_name = added_by_user.full_name if added_by_user else "Admin Group"
+    added_id = added_by_user.id if added_by_user else "N/A"
+
+    text = (
+        "🔔 **[ការស្នើសុំសិទ្ធិប្រើប្រាស់ BOT ថ្មី - NEW GROUP ADDED]** 🔔\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 **ឈ្មោះក្រុម:** `{chat.title or 'Unknown Group'}`\n"
+        f"🆔 **លេខ Group ID:** `{chat.id}`\n"
+        f"👤 **អ្នក Add ចូល:** {added_name} (`ID: {added_id}`)\n"
+        f"📅 **កាលបរិច្ឆេទ:** `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👉 **តើអ្នកយល់ព្រមបើកសិទ្ធិឱ្យ Bot ការពារក្នុងក្រុមនេះដែរឬទេ?**\n"
+        "*(បើបដិសេធ Bot នឹងនៅស្ងៀមមិនការពារទេ ហើយលោតសារដាស់តឿនឱ្យទិញសិទ្ធិ ២ ដងក្នុង ១ ថ្ងៃ)*"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🟢 អនុញ្ញាត (Approve & Protect)", callback_data=f"approve_{chat.id}"),
+            InlineKeyboardButton("🔴 បដិសេធ (Keep Unauthorized)", callback_data=f"reject_{chat.id}")
+        ]
+    ])
+
+    for admin_id in SUPER_ADMIN_IDS:
+        try:
+            await context.bot.send_message(
+                chat_id=int(admin_id),
+                text=text,
+                reply_markup=keyboard,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify super admin {admin_id}: {e}")
+
+
+async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    result = update.my_chat_member
+    if not result:
+        return
+
+    chat = result.chat
+    new_status = result.new_chat_member.status
+    old_status = result.old_chat_member.status
+    user = result.from_user
+
+    if new_status in ["member", "administrator"] and old_status not in ["member", "administrator"]:
+        chat_key = str(chat.id)
+        if chat_key not in GROUPS_CONFIG:
+            GROUPS_CONFIG[chat_key] = {
+                "title": chat.title or "Unknown Group",
+                "chat_id": chat.id,
+                "added_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "is_authorized": False,  # Default: មិនទាន់មានសិទ្ធិ
+                "is_enabled": False,     # Default: មិនទាន់បើក
+                "last_reminder_ts": time.time(),
+                "added_by_id": user.id if user else None,
+                "added_by_name": user.full_name if user else None,
+                "threats_blocked_count": 0
+            }
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
+            await notify_master_admin_new_group(context, chat, user)
+
+            pending_msg = (
+                "🤖 **[ប្រព័ន្ធសុវត្ថិភាព TELEGUARD BOT]**\n\n"
+                "សូមអរគុណដែលបាន Add Bot ចូលក្នុងក្រុមនេះ! 🎉\n"
+                "⚠️ **ស្ថានភាព៖** មិនទាន់មានអាជ្ញាប័ណ្ណប្រើប្រាស់ (Inactive) នៅឡើយទេ។\n"
+                f"🆔 **លេខ Group ID របស់អ្នក៖** `{chat.id}`\n\n"
+                "👉 សូមទាក់ទង **Master Super Admin (ID: `240224709`)** ដើម្បីទិញសិទ្ធិ និងបើកដំណើរការប្រព័ន្ធការពារពេញលេញ!\n"
+                "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ៦០ វិនាទី)*"
+            )
+            await send_auto_delete_message(context, chat.id, pending_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+
+
 # ==================== DYNAMIC BOTTOM KEYBOARD ====================
 
 def get_bottom_menu_keyboard(is_master: bool = False) -> ReplyKeyboardMarkup:
-    """
-    ប៊ូតុងនៅខាងក្រោមកន្លែងវាយអក្សរ៖
-    - Master Super Admin ឃើញប៊ូតុងគ្រប់គ្រងពេញលេញ
-    - អ្នកផ្សេងទៀតឃើញតែប៊ូតុងធម្មតា ២ ប៉ុណ្ណោះ
-    """
     if is_master:
         keyboard = [
             [
@@ -464,12 +549,14 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     chat = update.effective_chat
-    register_or_update_group(chat)
+    chat_key = str(chat.id)
+
+    # បើជា Group ដែលមិនទាន់មានអាជ្ញាប័ណ្ណ ➡️ មិនទាន់ការពារឡើយ
+    if chat.type in ["group", "supergroup"]:
+        if not is_group_authorized(chat.id):
+            return
 
     if await handle_anti_flood(update, context):
-        return
-
-    if not is_group_shield_active(chat.id):
         return
 
     file_name = message.document.file_name or "unnamed_file"
@@ -487,7 +574,6 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
 
         action_taken = await punish_user(chat.id, sender.id, context)
 
-        chat_key = str(chat.id)
         if chat_key in GROUPS_CONFIG:
             GROUPS_CONFIG[chat_key]["threats_blocked_count"] = GROUPS_CONFIG[chat_key].get("threats_blocked_count", 0) + 1
             save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
@@ -539,7 +625,6 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
                 await message.delete()
                 action_taken = await punish_user(chat.id, sender.id, context)
 
-                chat_key = str(chat.id)
                 if chat_key in GROUPS_CONFIG:
                     GROUPS_CONFIG[chat_key]["threats_blocked_count"] = GROUPS_CONFIG[chat_key].get("threats_blocked_count", 0) + 1
                     save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
@@ -579,14 +664,12 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    register_or_update_group(chat)
 
     if await handle_anti_flood(update, context):
         return
 
     text = update.message.text.strip() if update.message and update.message.text else ""
 
-    # ប្រសិនបើសមាជិកធម្មតាចុចប៊ូតុង ឬវាយពាក្យបញ្ជាក្នុង Group ➡️ បដិសេធភ្លាមៗ
     if text in [
         "🛡️ ឆែកស្ថានភាព Bot", "/status", "/check",
         "🆔 មើលលេខ ID Group", "/myid", "/id",
@@ -595,13 +678,12 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
         "📜 ប្រវត្តិការពារ (Logs)", "/logs"
     ]:
         if chat.type in ["group", "supergroup"]:
+            # ប្រសិនបើសមាជិកធម្មតាចុច ➡️ បដិសេធភ្លាម
             if not await is_authorized_group_admin(update, context):
-                # លុបសារដែលសមាជិកធម្មតាផ្ញើ
                 try:
                     await update.effective_message.delete()
                 except Exception:
                     pass
-                # ផ្ញើសារបដិសេធដែលលុបបាត់ក្នុង 5 វិនាទី
                 await send_auto_delete_message(
                     context,
                     chat.id,
@@ -611,7 +693,6 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
                 )
                 return
 
-        # បើជា Admin ឬ Master Admin
         if text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
             await status_command(update, context)
         elif text in ["🆔 មើលលេខ ID Group", "/myid", "/id"]:
@@ -629,12 +710,10 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
-    register_or_update_group(chat)
 
     is_master = is_super_admin(user.id)
     role_tag = "👑 **(Master Super Admin)**" if is_master else "🛡️ (Group Admin)"
 
-    # បើសមាជិកធម្មតាវាយ /start ក្នុង Group ➡️ បដិសេធភ្លាមៗ
     if chat.type in ["group", "supergroup"] and not await is_authorized_group_admin(update, context):
         try:
             await update.effective_message.delete()
@@ -650,7 +729,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (Double Extension ដូចជា `.jpg.apk`, `.pdf.apk`)\n"
         "✅ ឆែកស្កេន Cloud Hash លើ VirusTotal សម្រាប់ហ្វាល់ `.zip` និង `.rar`\n"
         "✅ ⏱️ **រាល់សារទាំងអស់ក្នុង Group នឹងលុបបាត់ទៅវិញក្នុង ៦០ វិនាទី**\n"
-        "✅ 🔒 **សមាជិកទូទៅគ្មានសិទ្ធិបញ្ជា Bot ដាច់ខាត (Admin Lock 100%)**\n"
+        "✅ 🔐 **ទាល់តែទិញអាជ្ញាប័ណ្ណពី Master Admin ទើប Bot បើកការពារ**\n"
         "✅ 💼 អនុញ្ញាត Link & Document ការងារ ១០០%\n\n"
         "🔐 **ចំណាំ៖** មានតែ **Admin នៃក្រុមនីមួយៗ** និង **Master Super Admin** ប៉ុណ្ណោះ ទើបមានសិទ្ធិបញ្ជា Bot។"
     )
@@ -664,10 +743,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    register_or_update_group(chat)
     is_master = is_super_admin(user.id)
 
-    # ពិនិត្យសិទ្ធិតឹងរ៉ឹង៖ បើសមាជិកធម្មតា ➡️ បដិសេធ
     if not is_master and not await is_authorized_group_admin(update, context):
         if chat.type in ["group", "supergroup"]:
             try:
@@ -683,8 +760,28 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    is_active = is_group_shield_active(chat.id)
-    shield_status_str = "🟢 **កំពុងការពារយ៉ាងសកម្ម (SHIELD ON)**" if is_active else "🔴 **ត្រូវបានបិទបណ្ដោះអាសន្ន (SHIELD OFF)**"
+    is_authorized = is_group_authorized(chat.id)
+
+    # ប្រសិនបើ Group មិនទាន់មានអាជ្ញាប័ណ្ណ ➡️ បង្ហាញត្រឹមតែលេខ ID និងការណែនាំឱ្យទិញសិទ្ធិ
+    if not is_authorized and not is_master:
+        unauth_text = (
+            "⚠️ **[ក្រុមមិនទាន់បានទិញសិទ្ធិប្រើប្រាស់ - UNAUTHORIZED]**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 **ឈ្មោះក្រុម:** `{chat.title}`\n"
+            f"🆔 **លេខ Group ID របស់អ្នក:** `{chat.id}`\n"
+            "🚫 **ស្ថានភាពការពារ:** 🔴 **មិនទាន់ដំណើរការ (OFF)**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"💡 **ការណែនាំ៖** សូមចម្លងលេខ Group ID (`{chat.id}`) នេះ ផ្ញើទៅកាន់ **Master Super Admin (ID: `240224709`)** ដើម្បីទិញអាជ្ញាប័ណ្ណ និងបើកដំណើរការប្រព័ន្ធការពារពេញលេញ!\n\n"
+            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៦០ វិនាទី)*"
+        )
+        if chat.type in ["group", "supergroup"]:
+            await send_auto_delete_message(context, chat.id, unauth_text, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(unauth_text, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # ករណីក្រុមដែលមានសិទ្ធិពេញលេញ
+    shield_status_str = "🟢 **កំពុងការពារយ៉ាងសកម្ម (ACTIVE / SHIELD ON)**" if is_authorized else "🔴 **មិនទាន់ដំណើរការ (INACTIVE)**"
     vt_status = "✅ **ភ្ជាប់រួចរាល់ (Connected)**" if VIRUSTOTAL_API_KEY and VIRUSTOTAL_API_KEY != "YOUR_VIRUSTOTAL_API_KEY_HERE" else "⚠️ **Local Shield Only**"
 
     group_name = chat.title if chat.type in ["group", "supergroup"] else "Chat ផ្ទាល់ខ្លួន (Private Chat)"
@@ -702,7 +799,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔰 **ស្ថានភាពការពារ:** {shield_status_str}\n"
         f"⚡ **ប្រព័ន្ធស្កេនមេរោគ (Local):** ✅ សកម្ម (.apk, .exe, .scr, .bat, .sh, .jpg.apk)\n"
         f"🌐 **VirusTotal Cloud Scan:** {vt_status}\n"
-        f"🔒 **Strict Admin Lock:** ✅ សកម្ម (សមាជិកគ្មានសិទ្ធិបញ្ជា)\n"
+        f"🔐 **Master License:** ✅ ទទួលបានអាជ្ញាប័ណ្ណផ្លូវការ\n"
         f"⏱️ **Auto-Delete Timer:** ✅ ៦០ វិនាទី\n"
         f"⚖️ **វិធានការលើអ្នកល្មើស:** លុបសារមេរោគ + {PUNISHMENT_MODE} {MUTE_DURATION_HOURS} ម៉ោង\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -716,11 +813,12 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin គ្រប់រូប (ទោះក្រុមមិនទាន់ទិញសិទ្ធិក៏ដោយ) អាចមើលឃើញលេខ Group ID ដើម្បីយកទៅទិញសិទ្ធិបាន"""
     user = update.effective_user
     chat = update.effective_chat
-    register_or_update_group(chat)
     is_master = is_super_admin(user.id)
 
+    # សមាជិកធម្មតាមិនអាចឆែកបានទេ
     if not is_master and not await is_authorized_group_admin(update, context):
         if chat.type in ["group", "supergroup"]:
             try:
@@ -731,13 +829,16 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     admin_tag = "👑 **(Master Super Admin)**" if is_master else "🛡️ (Group Admin)"
+    is_auth = is_group_authorized(chat.id)
+    license_status = "🟢 បានបើកសិទ្ធិការពាររួចរាល់" if is_auth else "🔴 មិនទាន់ទិញអាជ្ញាប័ណ្ណ (Inactive)"
 
     text = (
         f"🆔 **ព័ត៌មានអត្តសញ្ញាណ និង GROUP ID:**\n\n"
         f"👥 **ឈ្មោះ Group / Chat:** `{chat.title or user.full_name}`\n"
-        f"💬 **លេខ Group ID:** `{chat.id}`\n"
+        f"💬 **លេខ Group ID របស់អ្នក:** `{chat.id}`\n"
         f"👤 **Admin ឈ្មោះ:** {user.full_name} {admin_tag}\n"
-        f"🔢 **លេខ User ID របស់អ្នក:** `{user.id}`\n\n"
+        f"🔐 **ស្ថានភាពសេវាកម្ម:** {license_status}\n\n"
+        f"💡 *(សូមយកលេខ Group ID `{chat.id}` នេះ ផ្ញើទៅកាន់ Master Admin ដើម្បីទិញសិទ្ធិប្រើប្រាស់)*\n\n"
         f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ៦០ វិនាទី)*"
     )
 
@@ -750,12 +851,15 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def protect_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    register_or_update_group(chat)
     if chat.type in ["group", "supergroup"]:
         if not is_super_admin(user.id) and not await is_authorized_group_admin(update, context):
             return
         chat_key = str(chat.id)
-        GROUPS_CONFIG[chat_key]["is_enabled"] = True
+        if chat_key not in GROUPS_CONFIG:
+            GROUPS_CONFIG[chat_key] = {"title": chat.title, "is_authorized": True, "is_enabled": True}
+        else:
+            GROUPS_CONFIG[chat_key]["is_authorized"] = True
+            GROUPS_CONFIG[chat_key]["is_enabled"] = True
         save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
         await send_auto_delete_message(context, chat.id, "🟢 **ប្រព័ន្ធការពារ Malware Shield ត្រូវបានបើកដំណើរការ (ON) ក្នុង Group នេះ!**", delay=15, parse_mode=ParseMode.MARKDOWN)
 
@@ -763,13 +867,13 @@ async def protect_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def protect_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    register_or_update_group(chat)
     if chat.type in ["group", "supergroup"]:
         if not is_super_admin(user.id) and not await is_authorized_group_admin(update, context):
             return
         chat_key = str(chat.id)
-        GROUPS_CONFIG[chat_key]["is_enabled"] = False
-        save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+        if chat_key in GROUPS_CONFIG:
+            GROUPS_CONFIG[chat_key]["is_enabled"] = False
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
         await send_auto_delete_message(context, chat.id, "🔴 **ប្រព័ន្ធការពារ Malware Shield ត្រូវបានបិទដំណើរការ (OFF) ជាបណ្ដោះអាសន្ន!**", delay=15, parse_mode=ParseMode.MARKDOWN)
 
 
@@ -784,21 +888,30 @@ async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text("📋 មិនទាន់មាន Group ណាត្រូវបានកត់ត្រាក្នុងប្រព័ន្ធនៅឡើយទេ។")
         return
 
-    report = "📋 **[បញ្ជីឈ្មោះក្រុម លេខ ID & សេវាកម្មដែលបានអនុញ្ញាត]** 📋\n"
+    report = "📋 **[បញ្ជីឈ្មោះក្រុម លេខ ID & សេវាកម្មអនុញ្ញាតដោយ MASTER ADMIN]** 📋\n"
     report += "━━━━━━━━━━━━━━━━━━━━\n\n"
 
     for idx, (cid, gdata) in enumerate(GROUPS_CONFIG.items(), start=1):
         title = gdata.get("title", f"Group {cid}")
-        status = "🟢 ON (សកម្ម)" if gdata.get("is_enabled", True) else "🔴 OFF (បិទ)"
+        is_auth = gdata.get("is_authorized", False)
+        is_en = gdata.get("is_enabled", False)
+
+        if is_auth and is_en:
+            status = "🟢 ACTIVE (បានទិញសិទ្ធិ & កំពុងការពារ)"
+        elif is_auth and not is_en:
+            status = "🟡 PAUSED (បានទិញសិទ្ធិ តែបិទការពារ)"
+        else:
+            status = "🔴 UNAUTHORIZED (មិនទាន់ទិញសិទ្ធិ - លោតសារ ២ ដង/ថ្ងៃ)"
+
         threats = gdata.get("threats_blocked_count", 0)
         added_at = gdata.get("added_at", "N/A")
 
         report += f"**{idx}. {title}**\n"
         report += f"   • 🆔 **Group ID:** `{cid}`\n"
-        report += f"   • 🔰 **ស្ថានភាព:** {status}\n"
+        report += f"   • 🔰 **ស្ថានភាពសិទ្ធិ:** {status}\n"
         report += f"   • ☣️ **មេរោគដែលបានទប់ស្កាត់:** `{threats}` ករណី\n"
-        report += f"   • 📅 **កាលបរិច្ឆេទចូលរួម:** `{added_at}`\n"
-        report += "   • 📦 **សេវាកម្មអនុញ្ញាត:** Malware Shield, Anti-Flood, Strict Lock, VirusTotal\n"
+        report += f"   • 📅 **កាលបរិច្ឆេទ Add ចូល:** `{added_at}`\n"
+        report += "   • 📦 **កញ្ចប់សេវាកម្ម:** Malware Shield, Anti-Flood, Strict Lock, 60s Clean\n"
         report += "────────────────────\n"
 
     await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
@@ -837,9 +950,17 @@ def generate_admin_keyboard() -> InlineKeyboardMarkup:
     else:
         for chat_id, data in GROUPS_CONFIG.items():
             title = data.get("title", f"Group {chat_id}")
-            is_enabled = data.get("is_enabled", True)
-            status_emoji = "🟢 [បើក-ON]" if is_enabled else "🔴 [បិទ-OFF]"
-            btn_text = f"{status_emoji} {title[:20]}"
+            is_auth = data.get("is_authorized", False)
+            is_en = data.get("is_enabled", False)
+
+            if is_auth and is_en:
+                status_emoji = "🟢 [បើក-ON]"
+            elif is_auth and not is_en:
+                status_emoji = "🟡 [ផ្អាក-PAUSE]"
+            else:
+                status_emoji = "🔴 [មិនទាន់ទិញសិទ្ធិ]"
+
+            btn_text = f"{status_emoji} {title[:18]}"
             callback_data = f"toggle_{chat_id}"
             keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
 
@@ -859,7 +980,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "⚙️ **[ផ្ទាំងគ្រប់គ្រង MASTER BOT DASHBOARD]** ⚙️\n\n"
         "👑 **សូមស្វាគមន៍ Master Super Admin (ID: 240224709)**\n\n"
-        "គ្រប់គ្រងបើក/បិទប្រព័ន្ធការពារតាម Group នីមួយៗ៖\n"
+        "គ្រប់គ្រងផ្ដល់សិទ្ធិអាជ្ញាប័ណ្ណ និងបើក/បិទប្រព័ន្ធការពារតាម Group នីមួយៗ៖\n"
     )
     await update.message.reply_text(
         text=text,
@@ -878,31 +999,87 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
         return
 
     data = query.data
+
     if data == "refresh_groups":
         await query.edit_message_reply_markup(reply_markup=generate_admin_keyboard())
         return
 
+    # ការ Approve តាម Inline Button ពេលមាន Group ថ្មី Add ចូល
+    if data.startswith("approve_"):
+        chat_id = data.replace("approve_", "")
+        if chat_id in GROUPS_CONFIG:
+            GROUPS_CONFIG[chat_id]["is_authorized"] = True
+            GROUPS_CONFIG[chat_id]["is_enabled"] = True
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
+            group_title = GROUPS_CONFIG[chat_id].get("title", chat_id)
+            await query.edit_message_text(
+                f"✅ **[បានអនុញ្ញាតជោគជ័យ]**\n\n"
+                f"👥 ក្រុម៖ **{group_title}** (`{chat_id}`)\n"
+                f"🛡️ ស្ថានភាព៖ **បានបើកដំណើរការសិទ្ធិការពារពេញលេញ ១០០% រួចរាល់!**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+
+            success_msg = (
+                "🎉 **[សេវាកម្មត្រូវបានអនុញ្ញាតជាផ្លូវការ]** 🎉\n\n"
+                "🛡️ **Master Super Admin បានអនុញ្ញាតឱ្យបើកដំណើរការប្រព័ន្ធការពារពេញលេញក្នុងក្រុមនេះរួចរាល់ហើយ!**\n"
+                "✅ ស្កេនមេរោគ (.apk, .exe, .scr, .bat, .sh)\n"
+                "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (.jpg.apk, .pdf.apk)\n"
+                "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 60s"
+            )
+            await send_auto_delete_message(context, int(chat_id), success_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # ពេលចុចបដិសេធ ➡️ Bot នៅតែក្នុង Group ដដែល គ្រាន់តែមិនទាន់ការពារ និងលោតសារដាស់តឿនឱ្យទិញសិទ្ធិ ២ ដង/ថ្ងៃ
+    if data.startswith("reject_"):
+        chat_id = data.replace("reject_", "")
+        if chat_id in GROUPS_CONFIG:
+            GROUPS_CONFIG[chat_id]["is_authorized"] = False
+            GROUPS_CONFIG[chat_id]["is_enabled"] = False
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
+            group_title = GROUPS_CONFIG[chat_id].get("title", chat_id)
+            await query.edit_message_text(
+                f"🔴 **[បានកំណត់ជាមិនទាន់ទិញសិទ្ធិ]**\n\n"
+                f"👥 ក្រុម៖ **{group_title}** (`{chat_id}`)\n"
+                f"⚠️ ស្ថានភាព៖ **មិនទាន់ដំណើរការការពារទេ (Bot នឹងលោតសារដាស់តឿនឱ្យទិញសិទ្ធិ ២ ដងក្នុង ១ ថ្ងៃ)**",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        return
+
+    # Toggle ក្នុង Dashboard
     if data.startswith("toggle_"):
         chat_id = data.replace("toggle_", "")
         if chat_id in GROUPS_CONFIG:
-            current_status = GROUPS_CONFIG[chat_id].get("is_enabled", True)
-            new_status = not current_status
-            GROUPS_CONFIG[chat_id]["is_enabled"] = new_status
-            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+            current_auth = GROUPS_CONFIG[chat_id].get("is_authorized", False)
+            current_en = GROUPS_CONFIG[chat_id].get("is_enabled", False)
 
-            logger.info(f"Master Admin {user.id} toggled {chat_id} to {new_status}")
+            if not current_auth:
+                GROUPS_CONFIG[chat_id]["is_authorized"] = True
+                GROUPS_CONFIG[chat_id]["is_enabled"] = True
+            elif current_auth and current_en:
+                GROUPS_CONFIG[chat_id]["is_enabled"] = False
+            else:
+                GROUPS_CONFIG[chat_id]["is_enabled"] = True
+
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
             await query.edit_message_reply_markup(reply_markup=generate_admin_keyboard())
 
 
 # ==================== MAIN EXECUTION ====================
+
+async def post_init(application):
+    """ចាប់ផ្ដើម Background Task ផ្ញើសារដាស់តឿន ២ ដងក្នុង ១ ថ្ងៃ"""
+    asyncio.create_task(daily_reminder_loop(application))
+
 
 def main():
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
         print("Error: TELEGRAM_BOT_TOKEN is missing!")
         return
 
-    print("[*] Strict Admin-Lock Security Bot is starting with Master Super Admin (240224709)...")
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    print("[*] Commercial Security Bot starting with Master Super Admin (240224709)...")
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     # Commands
     app.add_handler(CommandHandler("start", start_command))
@@ -915,8 +1092,11 @@ def main():
     app.add_handler(CommandHandler("protect_on", protect_on_command))
     app.add_handler(CommandHandler("protect_off", protect_off_command))
 
-    # Master Admin Callback
+    # Master Admin Inline Callback
     app.add_handler(CallbackQueryHandler(admin_button_callback))
+
+    # Catch when Bot is added to new groups
+    app.add_handler(ChatMemberHandler(handle_bot_added_to_group, ChatMemberHandler.MY_CHAT_MEMBER))
 
     # 🧹 Auto-Delete Service messages
     app.add_handler(MessageHandler(filters.StatusUpdate.ALL, handle_service_messages))
@@ -931,7 +1111,7 @@ def main():
     # Bottom Menu Keyboard Button Filter
     app.add_handler(MessageHandler(filters.Regex(r"^(🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID Group|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម|📜 ប្រវត្តិការពារ \(Logs\))$"), handle_regular_messages))
 
-    print("[OK] Strict Admin-Lock Security Bot is fully active!")
+    print("[OK] Commercial Security Bot is fully active!")
     app.run_polling()
 
 

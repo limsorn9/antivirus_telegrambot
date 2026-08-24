@@ -1,20 +1,18 @@
 """
 =============================================================================
-🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (PRIVACY-SHIELD ENTERPRISE)
+🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (CLIENT CRM & DATA VAULT)
 =============================================================================
 Author: Cybersecurity & Telegram Defense Bot
 Master Super Admin: 240224709 (Global Authority Everywhere)
 
-Privacy & Security Architecture:
-1. 🙈 Zero ID Leak Policy: មិនបង្ហាញលេខសម្គាល់ User ID របស់ Admin ទៅកាន់អ្នកណាឡើយ
-2. 👑 Master Super Admin ម្នាក់គត់ ទើបអាចមើលឃើញ User ID ក្នុង Private Chat
-3. 🔐 Master License System: ក្រុមដែលមិនទាន់ទិញសិទ្ធិ Bot មិនការពារឡើយ
-4. 📢 2x/Day Upsell Reminders: លោតសារដាស់តឿនឱ្យទិញសិទ្ធិ ២ ដងក្នុងមួយថ្ងៃ (លុបក្នុង 60s)
-5. 🆔 Group Admin Access: អាចឆែកមើលបានតែលេខ Group ID ប៉ុណ្ណោះ (មិនបង្ហាញ User ID)
-6. ⏱️ 60-Second Strict Auto-Delete: គ្រប់សាររបស់ Bot ក្នុង Group រលាយបាត់ក្នុង 60s
-7. 🔒 Strict Admin Lock: សមាជិកទូទៅគ្មានសិទ្ធិបញ្ជា Bot ដាច់ខាត
-8. 📜 Audit Logging & Registry: ចងក្រងប្រវត្តិ និងបញ្ជីក្រុម
-9. 💼 Work-Friendly: Link & Document ការងារ មិនលុបដាច់ខាត
+Enterprise Client CRM & History Vault:
+1. 🗄️ Permanent Client Database (clients_database.json): រៀបចំប្រវត្តិអតិថិជនលម្អិត ១០០% មិនបាត់បង់
+2. 👤 Client Contact & Profile: ឈ្មោះអតិថិជន, Username, User ID, ឈ្មោះ Group, Group ID, ថ្ងៃ Add ចូល
+3. 💳 Subscription & License Tracking: ស្ថានភាពសេវាកម្ម, ថ្ងៃចាប់ផ្ដើម, ស្ថិតិមេរោគដែលបានការពារជូន
+4. 🙈 Privacy-Shield: មិនបង្ហាញលេខសម្គាល់ User ID ទៅកាន់អ្នកណាឡើយ (ឃើញតែ Master Admin ក្នុង Private Chat)
+5. ⏱️ 60-Second Auto-Delete ក្នុង Group
+6. 📢 2x/Day Upsell Reminders
+7. 🔒 Strict Admin Lock & Group Isolation
 =============================================================================
 """
 
@@ -82,6 +80,7 @@ FLOOD_MAX_MSGS = int(os.getenv("FLOOD_MAX_MSGS", "5"))
 FLOOD_WINDOW_SECONDS = int(os.getenv("FLOOD_WINDOW_SECONDS", "3"))
 
 GROUPS_CONFIG_FILE = "groups_config.json"
+CLIENTS_DB_FILE = "clients_database.json"
 AUDIT_LOG_FILE = "security_audit_logs.json"
 
 # Logging Setup
@@ -96,7 +95,7 @@ SCAN_CACHE = {}
 FLOOD_TRACKER = {}
 
 
-# ==================== PERSISTENT STORAGE ====================
+# ==================== PERMANENT STORAGE & CLIENT VAULT ====================
 
 def load_json_file(file_path: str, default_val: any) -> any:
     if os.path.exists(file_path):
@@ -117,7 +116,76 @@ def save_json_file(file_path: str, data: any):
 
 
 GROUPS_CONFIG = load_json_file(GROUPS_CONFIG_FILE, {})
+CLIENTS_DB = load_json_file(CLIENTS_DB_FILE, {})
 AUDIT_LOGS = load_json_file(AUDIT_LOG_FILE, [])
+
+
+def sync_client_record(chat, user=None, is_auth=None, is_enabled=None):
+    """
+    កត់ត្រា និងរក្សាទុកប្រវត្តិអតិថិជនលម្អិតជាអចិន្ត្រៃយ៍ក្នុង Client Vault (មិនឱ្យបាត់បង់ឡើយ)
+    """
+    chat_key = str(chat.id)
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # 1. ធ្វើបច្ចុប្បន្នភាព GROUPS_CONFIG
+    if chat_key not in GROUPS_CONFIG:
+        GROUPS_CONFIG[chat_key] = {
+            "title": chat.title or "Unknown Group",
+            "chat_id": chat.id,
+            "added_at": now_str,
+            "is_authorized": False if is_auth is None else is_auth,
+            "is_enabled": False if is_enabled is None else is_enabled,
+            "last_reminder_ts": time.time(),
+            "added_by_id": user.id if user else None,
+            "added_by_name": user.full_name if user else None,
+            "added_by_username": f"@{user.username}" if user and user.username else "N/A",
+            "threats_blocked_count": 0
+        }
+    else:
+        if chat.title and GROUPS_CONFIG[chat_key].get("title") != chat.title:
+            GROUPS_CONFIG[chat_key]["title"] = chat.title
+        if is_auth is not None:
+            GROUPS_CONFIG[chat_key]["is_authorized"] = is_auth
+        if is_enabled is not None:
+            GROUPS_CONFIG[chat_key]["is_enabled"] = is_enabled
+
+    save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
+    # 2. ធ្វើបច្ចុប្បន្នភាព CLIENTS_DB (ប្រវត្តិអតិថិជនលម្អិត)
+    if chat_key not in CLIENTS_DB:
+        CLIENTS_DB[chat_key] = {
+            "client_group_id": chat.id,
+            "client_group_name": chat.title or "Unknown Group",
+            "registered_date": now_str,
+            "activated_date": now_str if (is_auth is True) else "Not Yet Activated",
+            "license_status": "🟢 ACTIVE (បានទិញសិទ្ធិ)" if (is_auth is True) else "🔴 UNAUTHORIZED (មិនទាន់ទិញ)",
+            "customer_contact": {
+                "name": user.full_name if user else "Group Admin",
+                "user_id": str(user.id) if user else "N/A",
+                "username": f"@{user.username}" if user and user.username else "N/A"
+            },
+            "security_stats": {
+                "threats_blocked": 0,
+                "spams_blocked": 0,
+                "last_incident": "None"
+            },
+            "service_package": "Enterprise Malware Shield + Anti-Flood + VirusTotal Cloud"
+        }
+    else:
+        CLIENTS_DB[chat_key]["client_group_name"] = chat.title or CLIENTS_DB[chat_key].get("client_group_name", "Unknown Group")
+        if is_auth is True:
+            CLIENTS_DB[chat_key]["license_status"] = "🟢 ACTIVE (បានទិញសិទ្ធិ)"
+            if CLIENTS_DB[chat_key].get("activated_date") == "Not Yet Activated":
+                CLIENTS_DB[chat_key]["activated_date"] = now_str
+        elif is_auth is False:
+            CLIENTS_DB[chat_key]["license_status"] = "🔴 UNAUTHORIZED (មិនទាន់ទិញ)"
+
+        if user:
+            CLIENTS_DB[chat_key]["customer_contact"]["name"] = user.full_name
+            CLIENTS_DB[chat_key]["customer_contact"]["user_id"] = str(user.id)
+            CLIENTS_DB[chat_key]["customer_contact"]["username"] = f"@{user.username}" if user.username else "N/A"
+
+    save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
 
 
 def record_audit_event(event_type: str, chat_id: int, chat_title: str, user_id: int, user_name: str, details: str, action: str):
@@ -136,16 +204,24 @@ def record_audit_event(event_type: str, chat_id: int, chat_title: str, user_id: 
         AUDIT_LOGS.pop()
     save_json_file(AUDIT_LOG_FILE, AUDIT_LOGS)
 
+    # Update Client Security Stats
+    chat_key = str(chat_id)
+    if chat_key in CLIENTS_DB:
+        if "MALWARE" in event_type:
+            CLIENTS_DB[chat_key]["security_stats"]["threats_blocked"] = CLIENTS_DB[chat_key]["security_stats"].get("threats_blocked", 0) + 1
+        elif "FLOOD" in event_type:
+            CLIENTS_DB[chat_key]["security_stats"]["spams_blocked"] = CLIENTS_DB[chat_key]["security_stats"].get("spams_blocked", 0) + 1
+        CLIENTS_DB[chat_key]["security_stats"]["last_incident"] = f"{datetime.now().strftime('%Y-%m-%d %H:%M')} ({event_type})"
+        save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
+
 
 # ==================== MASTER APPROVAL & PERMISSIONS ====================
 
 def is_super_admin(user_id: int) -> bool:
-    """ពិនិត្យមើលថាតើជា Master Super Admin ឬទេ (ID: 240224709)"""
     return str(user_id) in SUPER_ADMIN_IDS
 
 
 def is_group_authorized(chat_id: int) -> bool:
-    """ពិនិត្យថាតើ Group នេះ ត្រូវបាន Master Super Admin អនុញ្ញាតសិទ្ធិ (Approved) ឬនៅ"""
     chat_key = str(chat_id)
     if chat_key in GROUPS_CONFIG:
         return GROUPS_CONFIG[chat_key].get("is_authorized", False) and GROUPS_CONFIG[chat_key].get("is_enabled", False)
@@ -153,7 +229,6 @@ def is_group_authorized(chat_id: int) -> bool:
 
 
 async def is_authorized_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """ពិនិត្យសិទ្ធិ Admin ក្នុង Group"""
     user = update.effective_user
     chat = update.effective_chat
     if not user or not chat:
@@ -184,7 +259,6 @@ async def delete_message_after_delay(bot, chat_id: int, message_id: int, delay_s
 
 
 async def send_auto_delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str, delay: int = BOT_MSG_DELETE_SECONDS, **kwargs):
-    """ផ្ញើសាររបស់ Bot ដែលនឹងរលាយបាត់ទៅវិញក្នុង ៦០ វិនាទី"""
     try:
         msg = await context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
         asyncio.create_task(delete_message_after_delay(context.bot, chat_id, msg.message_id, delay))
@@ -197,10 +271,6 @@ async def send_auto_delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: 
 # ==================== 📢 TWICE-DAILY REMINDER BACKGROUND JOB ====================
 
 async def daily_reminder_loop(app):
-    """
-    រត់ស្វ័យប្រវត្តិក្នង Background៖ ឆែកមើល Group ដែលមិនទាន់មានសិទ្ធិ
-    ហើយផ្ញើសារដាស់តឿនឱ្យទិញសិទ្ធិប្រើប្រាស់ ២ ដងក្នុងមួយថ្ងៃ (រៀងរាល់ ១២ ម៉ោងម្ដង)
-    """
     logger.info("Daily Reminder background job started (2x per day for unauthorized groups)...")
     while True:
         try:
@@ -243,14 +313,15 @@ async def daily_reminder_loop(app):
 async def notify_master_admin_new_group(context: ContextTypes.DEFAULT_TYPE, chat, added_by_user=None):
     added_name = added_by_user.full_name if added_by_user else "Admin Group"
     added_id = added_by_user.id if added_by_user else "N/A"
+    added_uname = f"@{added_by_user.username}" if added_by_user and added_by_user.username else "N/A"
 
-    # បង្ហាញ User ID តែក្នុង Private Chat របស់ Master Super Admin ប៉ុណ្ណោះ
     text = (
         "🔔 **[ការស្នើសុំសិទ្ធិប្រើប្រាស់ BOT ថ្មី - NEW GROUP ADDED]** 🔔\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"👥 **ឈ្មោះក្រុម:** `{chat.title or 'Unknown Group'}`\n"
         f"🆔 **លេខ Group ID:** `{chat.id}`\n"
-        f"👤 **អ្នក Add ចូល:** {added_name} (`User ID: {added_id}`)\n"
+        f"👤 **អតិថិជន:** {added_name} ({added_uname})\n"
+        f"🔢 **Customer User ID:** `{added_id}`\n"
         f"📅 **កាលបរិច្ឆេទ:** `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "👉 **តើអ្នកយល់ព្រមបើកសិទ្ធិឱ្យ Bot ការពារក្នុងក្រុមនេះដែរឬទេ?**\n"
@@ -287,32 +358,18 @@ async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAUL
     user = result.from_user
 
     if new_status in ["member", "administrator"] and old_status not in ["member", "administrator"]:
-        chat_key = str(chat.id)
-        if chat_key not in GROUPS_CONFIG:
-            GROUPS_CONFIG[chat_key] = {
-                "title": chat.title or "Unknown Group",
-                "chat_id": chat.id,
-                "added_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "is_authorized": False,
-                "is_enabled": False,
-                "last_reminder_ts": time.time(),
-                "added_by_id": user.id if user else None,
-                "added_by_name": user.full_name if user else None,
-                "threats_blocked_count": 0
-            }
-            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+        sync_client_record(chat, user, is_auth=False, is_enabled=False)
+        await notify_master_admin_new_group(context, chat, user)
 
-            await notify_master_admin_new_group(context, chat, user)
-
-            pending_msg = (
-                "🤖 **[ប្រព័ន្ធសុវត្ថិភាព TELEGUARD BOT]**\n\n"
-                "សូមអរគុណដែលបាន Add Bot ចូលក្នុងក្រុមនេះ! 🎉\n"
-                "⚠️ **ស្ថានភាព៖** មិនទាន់មានអាជ្ញាប័ណ្ណប្រើប្រាស់ (Inactive) នៅឡើយទេ។\n"
-                f"🆔 **លេខ Group ID របស់អ្នក៖** `{chat.id}`\n\n"
-                "👉 សូមទាក់ទង **Master Super Admin** ដើម្បីទិញសិទ្ធិ និងបើកដំណើរការប្រព័ន្ធការពារពេញលេញ!\n"
-                "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ៦០ វិនាទី)*"
-            )
-            await send_auto_delete_message(context, chat.id, pending_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        pending_msg = (
+            "🤖 **[ប្រព័ន្ធសុវត្ថិភាព TELEGUARD BOT]**\n\n"
+            "សូមអរគុណដែលបាន Add Bot ចូលក្នុងក្រុមនេះ! 🎉\n"
+            "⚠️ **ស្ថានភាព៖** មិនទាន់មានអាជ្ញាប័ណ្ណប្រើប្រាស់ (Inactive) នៅឡើយទេ។\n"
+            f"🆔 **លេខ Group ID របស់អ្នក៖** `{chat.id}`\n\n"
+            "👉 សូមទាក់ទង **Master Super Admin** ដើម្បីទិញសិទ្ធិ និងបើកដំណើរការប្រព័ន្ធការពារពេញលេញ!\n"
+            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ៦០ វិនាទី)*"
+        )
+        await send_auto_delete_message(context, chat.id, pending_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
 
 
 # ==================== DYNAMIC BOTTOM KEYBOARD ====================
@@ -518,7 +575,6 @@ async def handle_anti_flood(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
         action_msg = await punish_user(chat.id, user.id, context, duration_hours=1)
         
-        # កត់ត្រា Audit Log (មាន User ID សម្រាប់ Master Admin មើលពេលក្រោយ)
         record_audit_event(
             event_type="ANTI_FLOOD_SPAM",
             chat_id=chat.id,
@@ -589,7 +645,6 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
         )
 
         sender_name = sender.full_name or "Unknown User"
-        # មិនបង្ហាញ User ID ក្នុងសារជាសាធារណៈឡើយ (Privacy Protection)
         warning_text = (
             f"🛡️ **[ការប្រកាសអាសន្នសុវត្ថិភាព - SECURITY ALERT]** 🛡️\n\n"
             f"⚠️ **បានរកឃើញ និងលុបហ្វាល់មេរោគជាបន្ទាន់!**\n"
@@ -675,7 +730,7 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
         "🛡️ ឆែកស្ថានភាព Bot", "/status", "/check",
         "🆔 មើលលេខ ID Group", "/myid", "/id",
         "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin",
-        "📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម", "/groups",
+        "📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម", "/groups", "/clients",
         "📜 ប្រវត្តិការពារ (Logs)", "/logs"
     ]:
         if chat.type in ["group", "supergroup"]:
@@ -699,7 +754,7 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
             await myid_command(update, context)
         elif text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
             await admin_command(update, context)
-        elif text in ["📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម", "/groups"]:
+        elif text in ["📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម", "/groups", "/clients"]:
             await list_groups_command(update, context)
         elif text in ["📜 ប្រវត្តិការពារ (Logs)", "/logs"]:
             await logs_command(update, context)
@@ -729,7 +784,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (Double Extension ដូចជា `.jpg.apk`, `.pdf.apk`)\n"
         "✅ ឆែកស្កេន Cloud Hash លើ VirusTotal សម្រាប់ហ្វាល់ `.zip` និង `.rar`\n"
         "✅ ⏱️ **រាល់សារទាំងអស់ក្នុង Group នឹងលុបបាត់ទៅវិញក្នុង ៦០ វិនាទី**\n"
-        "✅ 🔐 **ទាល់តែទិញអាជ្ញាប័ណ្ណពី Master Admin ទើប Bot បើកការពារ**\n"
+        "✅ 🗄️ **ប្រព័ន្ធរក្សាទុកប្រវត្តិអតិថិជនជាអចិន្ត្រៃយ៍ (Client Database)**\n"
         "✅ 💼 អនុញ្ញាត Link & Document ការងារ ១០០%\n\n"
         "🔐 **ចំណាំ៖** មានតែ **Admin នៃក្រុមនីមួយៗ** និង **Master Super Admin** ប៉ុណ្ណោះ ទើបមានសិទ្ធិបញ្ជា Bot។"
     )
@@ -762,7 +817,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     is_authorized = is_group_authorized(chat.id)
 
-    # ករណីក្រុមមិនទាន់ទិញសិទ្ធិ (មិនបង្ហាញ Admin ID ឡើយ)
     if not is_authorized and not is_master:
         unauth_text = (
             "⚠️ **[ក្រុមមិនទាន់បានទិញសិទ្ធិប្រើប្រាស់ - UNAUTHORIZED]**\n"
@@ -812,11 +866,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    ឆែកមើលលេខសម្គាល់៖
-    - Master Super Admin ក្នុង Private Chat: អាចឃើញ User ID របស់ខ្លួន
-    - ក្នុង Group Chat សម្រាប់ Group Admin: បង្ហាញតែ Group ID ប៉ុណ្ណោះ (មិនបង្ហាញ User ID របស់ Admin ឡើយ)
-    """
     user = update.effective_user
     chat = update.effective_chat
     is_master = is_super_admin(user.id)
@@ -833,7 +882,6 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_auth = is_group_authorized(chat.id)
     license_status = "🟢 បានបើកសិទ្ធិការពាររួចរាល់" if is_auth else "🔴 មិនទាន់ទិញអាជ្ញាប័ណ្ណ (Inactive)"
 
-    # បើនៅក្នុង Group Chat: បង្ហាញត្រឹមតែលេខ Group ID (Zero User ID Leak!)
     if chat.type in ["group", "supergroup"]:
         text = (
             f"🆔 **ព័ត៌មាន GROUP ID៖**\n\n"
@@ -845,7 +893,6 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_bottom_menu_keyboard(is_master=is_master), parse_mode=ParseMode.MARKDOWN)
     else:
-        # បើក្នុង Private Chat របស់ Master Super Admin: បង្ហាញពេញលេញ
         text = (
             f"🆔 **ព័ត៌មានអត្តសញ្ញាណ MASTER ADMIN៖**\n\n"
             f"👤 **ឈ្មោះ:** {user.full_name} 👑 **(Master Super Admin)**\n"
@@ -861,13 +908,7 @@ async def protect_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if chat.type in ["group", "supergroup"]:
         if not is_super_admin(user.id) and not await is_authorized_group_admin(update, context):
             return
-        chat_key = str(chat.id)
-        if chat_key not in GROUPS_CONFIG:
-            GROUPS_CONFIG[chat_key] = {"title": chat.title, "is_authorized": True, "is_enabled": True}
-        else:
-            GROUPS_CONFIG[chat_key]["is_authorized"] = True
-            GROUPS_CONFIG[chat_key]["is_enabled"] = True
-        save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+        sync_client_record(chat, user, is_auth=True, is_enabled=True)
         await send_auto_delete_message(context, chat.id, "🟢 **ប្រព័ន្ធការពារ Malware Shield ត្រូវបានបើកដំណើរការ (ON) ក្នុង Group នេះ!**", delay=15, parse_mode=ParseMode.MARKDOWN)
 
 
@@ -877,51 +918,46 @@ async def protect_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if chat.type in ["group", "supergroup"]:
         if not is_super_admin(user.id) and not await is_authorized_group_admin(update, context):
             return
-        chat_key = str(chat.id)
-        if chat_key in GROUPS_CONFIG:
-            GROUPS_CONFIG[chat_key]["is_enabled"] = False
-            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+        sync_client_record(chat, user, is_auth=None, is_enabled=False)
         await send_auto_delete_message(context, chat.id, "🔴 **ប្រព័ន្ធការពារ Malware Shield ត្រូវបានបិទដំណើរការ (OFF) ជាបណ្ដោះអាសន្ន!**", delay=15, parse_mode=ParseMode.MARKDOWN)
 
 
-# ==================== MASTER SUPER ADMIN: GROUPS REGISTRY & LOGS ====================
+# ==================== MASTER SUPER ADMIN: CLIENT CRM & DATABASE ====================
 
 async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """របាយការណ៍អតិថិជន និងប្រវត្តិក្រុមលម្អិត ១០០% សម្រាប់ Master Super Admin"""
     user = update.effective_user
     if not is_super_admin(user.id):
         return
 
-    if not GROUPS_CONFIG:
-        await update.message.reply_text("📋 មិនទាន់មាន Group ណាត្រូវបានកត់ត្រាក្នុងប្រព័ន្ធនៅឡើយទេ។")
+    if not CLIENTS_DB:
+        await update.message.reply_text("🗄️ មិនទាន់មានទិន្នន័យអតិថិជនក្នុងប្រព័ន្ធនៅឡើយទេ។")
         return
 
-    report = "📋 **[បញ្ជីឈ្មោះក្រុម លេខ ID & សេវាកម្មអនុញ្ញាតដោយ MASTER ADMIN]** 📋\n"
+    report = "🗄️ **[ប្រព័ន្ធគ្រប់គ្រងអតិថិជន & ប្រវត្តិក្រុម - CLIENT CRM VAULT]** 🗄️\n"
     report += "━━━━━━━━━━━━━━━━━━━━\n\n"
 
-    for idx, (cid, gdata) in enumerate(GROUPS_CONFIG.items(), start=1):
-        title = gdata.get("title", f"Group {cid}")
-        is_auth = gdata.get("is_authorized", False)
-        is_en = gdata.get("is_enabled", False)
+    for idx, (cid, cdata) in enumerate(CLIENTS_DB.items(), start=1):
+        gname = cdata.get("client_group_name", f"Group {cid}")
+        status = cdata.get("license_status", "N/A")
+        contact = cdata.get("customer_contact", {})
+        c_name = contact.get("name", "N/A")
+        c_uname = contact.get("username", "N/A")
+        c_uid = contact.get("user_id", "N/A")
+        stats = cdata.get("security_stats", {})
+        threats = stats.get("threats_blocked", 0)
+        spams = stats.get("spams_blocked", 0)
+        reg_date = cdata.get("registered_date", "N/A")
+        act_date = cdata.get("activated_date", "N/A")
 
-        if is_auth and is_en:
-            status = "🟢 ACTIVE (បានទិញសិទ្ធិ & កំពុងការពារ)"
-        elif is_auth and not is_en:
-            status = "🟡 PAUSED (បានទិញសិទ្ធិ តែបិទការពារ)"
-        else:
-            status = "🔴 UNAUTHORIZED (មិនទាន់ទិញសិទ្ធិ - លោតសារ ២ ដង/ថ្ងៃ)"
-
-        threats = gdata.get("threats_blocked_count", 0)
-        added_at = gdata.get("added_at", "N/A")
-        added_by = gdata.get("added_by_name", "N/A")
-        added_by_id = gdata.get("added_by_id", "N/A")
-
-        report += f"**{idx}. {title}**\n"
+        report += f"**{idx}. {gname}**\n"
         report += f"   • 🆔 **Group ID:** `{cid}`\n"
-        report += f"   • 🔰 **ស្ថានភាពសិទ្ធិ:** {status}\n"
-        report += f"   • 👤 **អ្នក Add ចូល:** {added_by} (`ID: {added_by_id}`)\n"
-        report += f"   • ☣️ **មេរោគដែលបានទប់ស្កាត់:** `{threats}` ករណី\n"
-        report += f"   • 📅 **កាលបរិច្ឆេទ Add ចូល:** `{added_at}`\n"
-        report += "   • 📦 **កញ្ចប់សេវាកម្ម:** Malware Shield, Anti-Flood, Strict Lock, 60s Clean\n"
+        report += f"   • 🔰 **ស្ថានភាពសេវា:** {status}\n"
+        report += f"   • 👤 **អតិថិជន:** {c_name} ({c_uname})\n"
+        report += f"   • 🔢 **Customer ID:** `{c_uid}`\n"
+        report += f"   • 📅 **ថ្ងៃ Add ចូល:** `{reg_date}`\n"
+        report += f"   • ⚡ **ថ្ងៃបើកសិទ្ធិ:** `{act_date}`\n"
+        report += f"   • 🛡️ **ស្ថិតិការពារជូន:** ☣️ `{threats}` មេរោគ | 🌊 `{spams}` Spams\n"
         report += "────────────────────\n"
 
     await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
@@ -1021,6 +1057,12 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
             GROUPS_CONFIG[chat_id]["is_enabled"] = True
             save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
 
+            # Sync Client DB
+            if chat_id in CLIENTS_DB:
+                CLIENTS_DB[chat_id]["license_status"] = "🟢 ACTIVE (បានទិញសិទ្ធិ)"
+                CLIENTS_DB[chat_id]["activated_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
+
             group_title = GROUPS_CONFIG[chat_id].get("title", chat_id)
             await query.edit_message_text(
                 f"✅ **[បានអនុញ្ញាតជោគជ័យ]**\n\n"
@@ -1046,6 +1088,10 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
             GROUPS_CONFIG[chat_id]["is_enabled"] = False
             save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
 
+            if chat_id in CLIENTS_DB:
+                CLIENTS_DB[chat_id]["license_status"] = "🔴 UNAUTHORIZED (មិនទាន់ទិញ)"
+                save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
+
             group_title = GROUPS_CONFIG[chat_id].get("title", chat_id)
             await query.edit_message_text(
                 f"🔴 **[បានកំណត់ជាមិនទាន់ទិញសិទ្ធិ]**\n\n"
@@ -1064,12 +1110,16 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
             if not current_auth:
                 GROUPS_CONFIG[chat_id]["is_authorized"] = True
                 GROUPS_CONFIG[chat_id]["is_enabled"] = True
+                if chat_id in CLIENTS_DB:
+                    CLIENTS_DB[chat_id]["license_status"] = "🟢 ACTIVE (បានទិញសិទ្ធិ)"
+                    CLIENTS_DB[chat_id]["activated_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             elif current_auth and current_en:
                 GROUPS_CONFIG[chat_id]["is_enabled"] = False
             else:
                 GROUPS_CONFIG[chat_id]["is_enabled"] = True
 
             save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+            save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
             await query.edit_message_reply_markup(reply_markup=generate_admin_keyboard())
 
 
@@ -1084,7 +1134,7 @@ def main():
         print("Error: TELEGRAM_BOT_TOKEN is missing!")
         return
 
-    print("[*] Privacy-Shield Security Bot starting with Master Super Admin (240224709)...")
+    print("[*] Client Vault Security Bot starting with Master Super Admin (240224709)...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     # Commands
@@ -1094,6 +1144,7 @@ def main():
     app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("groups", list_groups_command))
+    app.add_handler(CommandHandler("clients", list_groups_command))
     app.add_handler(CommandHandler("logs", logs_command))
     app.add_handler(CommandHandler("protect_on", protect_on_command))
     app.add_handler(CommandHandler("protect_off", protect_off_command))
@@ -1117,7 +1168,7 @@ def main():
     # Bottom Menu Keyboard Button Filter
     app.add_handler(MessageHandler(filters.Regex(r"^(🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID Group|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម|📜 ប្រវត្តិការពារ \(Logs\))$"), handle_regular_messages))
 
-    print("[OK] Privacy-Shield Security Bot is fully active!")
+    print("[OK] Client Vault Security Bot is fully active!")
     app.run_polling()
 
 

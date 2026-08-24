@@ -1,13 +1,13 @@
 """
 =============================================================================
-🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (START BUTTON & NATIVE MENU)
+🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (GUARANTEED 30S SWEEPER ENGINE)
 =============================================================================
 Author: Cybersecurity & Telegram Defense Bot
 Sole Bot Owner: 240224709 (Master Super Admin)
 
-Features:
-1. 🚀 Start Bot Button & Native Menu: មានប៊ូតុង [ 🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start) ] និង Telegram Menu Bar
-2. ⏱️ 30-Second Auto-Delete (គ្រប់សារទាំងអស់របស់ Bot បង្ហាញត្រឹម ៣០ វិនាទី រួចលុបបាត់វិញភ្លាម)
+Guaranteed 30-Second Clean Room Engine:
+1. 🧹 Dual Auto-Delete & Sweeper Watchdog: ធានា ១០០% ថាគ្រប់សាររបស់ Bot ទោះច្រើនរាប់រយសារ ក៏ត្រូវលុបចោលក្នុង ៣០ វិនាទី
+2. 🚀 Start Bot Button & Native Menu: មានប៊ូតុង [ 🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start) ] និង Telegram Menu Bar
 3. 🗄️ Permanent Data Vault & Auto-Recovery: ទិន្នន័យក្រុម និងប្រវត្តិការពារ មិនបាត់បង់ដាច់ខាត (Auto-Restore)
 4. 👻 Stealth Master Privacy: រាល់សកម្មភាព និងប៊ូតុងរបស់ Master Owner គឺលាក់បាំងក្នុង Group ១០០%
 5. 🎛️ 100% Button-Driven Management: បញ្ជាគ្រប់គ្រងតាមប៊ូតុងគ្រប់ជំហាន
@@ -92,9 +92,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("MalwareGuardBot")
 
-# In-Memory Trackers
+# In-Memory Trackers & Global Auto-Delete Queue
 SCAN_CACHE = {}
 FLOOD_TRACKER = {}
+PENDING_BOT_DELETIONS = []  # [(chat_id, message_id, expire_timestamp), ...]
 
 
 # ==================== 🗄️ DEFAULT VAULT BACKUP (AUTO-RESTORE) ====================
@@ -398,9 +399,10 @@ def is_group_authorized(chat_id: int) -> bool:
     return False
 
 
-# ==================== ⏱️ 30-SECOND AUTO-DELETE HELPER ====================
+# ==================== ⏱️ DUAL 30-SECOND AUTO-DELETE & SWEEPER ENGINE ====================
 
 async def delete_message_after_delay(bot, chat_id: int, message_id: int, delay_seconds: int = BOT_MSG_DELETE_SECONDS):
+    """លុបសារទោលតាម Timer ៣០ វិនាទី"""
     await asyncio.sleep(delay_seconds)
     try:
         await bot.delete_message(chat_id=chat_id, message_id=message_id)
@@ -409,13 +411,50 @@ async def delete_message_after_delay(bot, chat_id: int, message_id: int, delay_s
 
 
 async def send_auto_delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str, delay: int = BOT_MSG_DELETE_SECONDS, **kwargs):
+    """
+    ផ្ញើសាររបស់ Bot ចូល Group និងចុះបញ្ជីលុបចោលក្នុង ៣០ វិនាទី ១០០% (Dual Guarantee)
+    """
     try:
         msg = await context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
-        asyncio.create_task(delete_message_after_delay(context.bot, chat_id, msg.message_id, delay))
+        if msg:
+            # 1. ដំណើរការ Task លុបផ្ទាល់
+            asyncio.create_task(delete_message_after_delay(context.bot, chat_id, msg.message_id, delay))
+            # 2. បញ្ចូលក្នុង Global Queue សម្រាប់ Sweeper Watchdog ត្រួតពិនិត្យបន្ថែម
+            if chat_id < 0:  # សម្រាប់ Group និង Supergroup
+                PENDING_BOT_DELETIONS.append((chat_id, msg.message_id, time.time() + delay))
         return msg
     except Exception as e:
         logger.error(f"Error sending auto-delete message: {e}")
         return None
+
+
+async def bot_message_sweeper_loop(application):
+    """
+    🧹 Global Sweeper Watchdog:
+    រត់ត្រួតពិនិត្យរៀងរាល់ ៥ វិនាទីម្តង ដើម្បីធានាថារាល់សារទាំងអស់របស់ Bot
+    ទោះបីច្រើនរាប់រយសារ ក៏ត្រូវតែលុបចោលឱ្យអស់ក្នុងរយៈពេល ៣០ វិនាទីជាដាច់ខាត!
+    """
+    logger.info("Bot Message Sweeper Watchdog started (Guaranteed 30-second clean)...")
+    while True:
+        try:
+            now = time.time()
+            remaining_queue = []
+            for item in PENDING_BOT_DELETIONS:
+                chat_id, msg_id, expire_ts = item
+                if now >= expire_ts:
+                    try:
+                        await application.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+                    except Exception:
+                        pass
+                else:
+                    remaining_queue.append(item)
+
+            PENDING_BOT_DELETIONS.clear()
+            PENDING_BOT_DELETIONS.extend(remaining_queue)
+        except Exception as err:
+            logger.error(f"Error in bot_message_sweeper_loop: {err}")
+
+        await asyncio.sleep(5)
 
 
 # ==================== 📢 TWICE-DAILY REMINDER BACKGROUND JOB ====================
@@ -444,13 +483,15 @@ async def daily_reminder_loop(app):
                             "━━━━━━━━━━━━━━━━━━━━\n"
                             "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៣០ វិនាទី)*"
                         )
-                        try:
-                            msg = await app.bot.send_message(chat_id=chat_id, text=reminder_text, parse_mode=ParseMode.MARKDOWN)
-                            asyncio.create_task(delete_message_after_delay(app.bot, chat_id, msg.message_id, BOT_MSG_DELETE_SECONDS))
-                            GROUPS_CONFIG[chat_id_str]["last_reminder_ts"] = now_ts
-                            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
-                        except Exception as e:
-                            logger.error(f"Cannot send reminder to {chat_id_str}: {e}")
+                        await send_auto_delete_message(
+                            app,
+                            chat_id=chat_id,
+                            text=reminder_text,
+                            delay=BOT_MSG_DELETE_SECONDS,
+                            parse_mode=ParseMode.MARKDOWN
+                        )
+                        GROUPS_CONFIG[chat_id_str]["last_reminder_ts"] = now_ts
+                        save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
         except Exception as err:
             logger.error(f"Error in daily_reminder_loop: {err}")
 
@@ -524,10 +565,6 @@ async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAUL
 # ==================== DYNAMIC KEYBOARD BUILDER ====================
 
 def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
-    """
-    ផ្ទាំងប៊ូតុងបញ្ជាពេញលេញ ៧ ជម្រើសសម្រាប់ Master Owner (240224709) ក្នុង Private Chat
-    រួមមានប៊ូតុង Start Bot ឡើងវិញ
-    """
     keyboard = [
         [
             KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
@@ -549,7 +586,6 @@ def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_client_admin_keyboard() -> ReplyKeyboardMarkup:
-    """ផ្ទាំងប៊ូតុងធម្មតា ២ សម្រាប់ Client Group Admins ក្នុង Group"""
     keyboard = [
         [
             KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
@@ -1054,7 +1090,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_
         "• ចុចប៊ូតុង `[ 🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start) ]` គ្រប់ពេលដែលអ្នកចង់បើក Menu ធំឡើងវិញ\n\n"
         "🔒 **៥. ប្រព័ន្ធ Stealth Privacy Mode៖**\n"
         "• ទោះបីជាអ្នកនៅក្នុង Group ណាក៏ដោយ ក៏ប៊ូតុង និងសារបញ្ជារបស់អ្នក **មិនបង្ហាញឱ្យសមាជិកក្នុង Group ឃើញឡើយ** (Bot បញ្ជូនមក Private Chat នេះដោយស្វ័យប្រវត្តិ)!\n\n"
-        "⏱️ **៦. កំណត់ពេលលុបសារស្វ័យប្រវត្តិ៖** ៣០ វិនាទី\n"
+        "⏱️ **៦. កំណត់ពេលលុបសារស្វ័យប្រវត្តិ៖** ៣០ វិនាទី (មានប្រព័ន្ធ Sweeper Watchdog សម្អាតជាប្រចាំ)\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
     target_id = send_to_user_id if send_to_user_id else update.effective_chat.id
@@ -1110,7 +1146,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔰 **ស្ថានភាពការពារ:** {shield_status_str}\n"
         f"⚡ **ប្រព័ន្ធស្កេនមេរោគ (Local):** ✅ សកម្ម (.apk, .exe, .scr, .bat, .sh, .jpg.apk)\n"
         f"🌐 **VirusTotal Cloud Scan:** {vt_status}\n"
-        f"⏱️ **Auto-Delete Timer:** ✅ ៣០ វិនាទី\n"
+        f"⏱️ **Auto-Delete Timer:** ✅ ៣០ វិនាទី (Clean Room Sweeper)\n"
         f"⚖️ **វិធានការលើអ្នកល្មើស:** លុបសារមេរោគ + {PUNISHMENT_MODE} {MUTE_DURATION_HOURS} ម៉ោង\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"💡 *(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៣០ វិនាទី)*"
@@ -1464,8 +1500,11 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
 # ==================== MAIN EXECUTION ====================
 
 async def post_init(application):
+    # 1. ចាប់ផ្ដើម Daily Reminder Background Task
     asyncio.create_task(daily_reminder_loop(application))
-    # កំណត់ Telegram Native Command Menu Bar
+    # 2. ចាប់ផ្ដើម Guaranteed 30-Second Sweeper Watchdog
+    asyncio.create_task(bot_message_sweeper_loop(application))
+    # 3. កំណត់ Telegram Native Command Menu Bar
     try:
         commands = [
             BotCommand("start", "🚀 ចាប់ផ្ដើម Bot / បើកផ្ទាំងបញ្ជា"),
@@ -1486,7 +1525,7 @@ def main():
         print("Error: TELEGRAM_BOT_TOKEN is missing!")
         return
 
-    print("[*] Security Bot starting with Start Button & Full Navigation for Owner (240224709)...")
+    print("[*] Security Bot starting with Guaranteed 30s Sweeper Engine for Owner (240224709)...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     # Commands
@@ -1519,7 +1558,7 @@ def main():
     # Stealth Menu Keyboard Router
     app.add_handler(MessageHandler(filters.Regex(r"^(⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|📋 បញ្ជីអតិថិជន & Group|📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន|📜 ប្រវត្តិការពារ \(Logs\)|🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID|🆔 មើលលេខ ID Group|❓ ការណែនាំ & ជំនួយ|🚀 ចាប់ផ្ដើម Bot ឡើងវិញ \(/start\))$"), handle_regular_messages))
 
-    print("[OK] Security Bot with Start Button is fully active!")
+    print("[OK] Security Bot with 30s Guaranteed Sweeper Engine is fully active!")
     app.run_polling()
 
 

@@ -1,17 +1,18 @@
 """
 =============================================================================
-🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (30-SECOND AUTO-CLEAN EDITION)
+🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (START BUTTON & NATIVE MENU)
 =============================================================================
 Author: Cybersecurity & Telegram Defense Bot
 Sole Bot Owner: 240224709 (Master Super Admin)
 
 Features:
-1. ⏱️ 30-Second Auto-Delete (គ្រប់សារទាំងអស់របស់ Bot បង្ហាញត្រឹម ៣០ វិនាទី រួចលុបបាត់វិញភ្លាម)
-2. 🗄️ Permanent Data Vault & Auto-Recovery: ទិន្នន័យក្រុម និងប្រវត្តិការពារ មិនបាត់បង់ដាច់ខាត (Auto-Restore)
-3. 👻 Stealth Master Privacy: រាល់សកម្មភាព និងប៊ូតុងរបស់ Master Owner គឺលាក់បាំងក្នុង Group ១០០%
-4. 🎛️ 100% Button-Driven Management: បញ្ជាគ្រប់គ្រងតាមប៊ូតុងគ្រប់ជំហាន
-5. 🛡️ Two-Tier Clean Isolation: Master Owner (ពេញលេញ ៦ ប៊ូតុង) vs Client Admin (២ ប៊ូតុង)
-6. 🤖 Automated Security: ស្កេនមេរោគ, លុប Join/Leave, ទប់ Flood Spam, 2x/Day Upsell Reminders
+1. 🚀 Start Bot Button & Native Menu: មានប៊ូតុង [ 🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start) ] និង Telegram Menu Bar
+2. ⏱️ 30-Second Auto-Delete (គ្រប់សារទាំងអស់របស់ Bot បង្ហាញត្រឹម ៣០ វិនាទី រួចលុបបាត់វិញភ្លាម)
+3. 🗄️ Permanent Data Vault & Auto-Recovery: ទិន្នន័យក្រុម និងប្រវត្តិការពារ មិនបាត់បង់ដាច់ខាត (Auto-Restore)
+4. 👻 Stealth Master Privacy: រាល់សកម្មភាព និងប៊ូតុងរបស់ Master Owner គឺលាក់បាំងក្នុង Group ១០០%
+5. 🎛️ 100% Button-Driven Management: បញ្ជាគ្រប់គ្រងតាមប៊ូតុងគ្រប់ជំហាន
+6. 🛡️ Two-Tier Clean Isolation: Master Owner (ពេញលេញ ៧ ប៊ូតុង) vs Client Admin (២ ប៊ូតុង)
+7. 🤖 Automated Security: ស្កេនមេរោគ, លុប Join/Leave, ទប់ Flood Spam, 2x/Day Upsell Reminders
 =============================================================================
 """
 
@@ -38,6 +39,7 @@ import aiohttp
 from dotenv import load_dotenv
 from telegram import (
     Update,
+    BotCommand,
     ChatPermissions,
     ChatMemberUpdated,
     ReplyKeyboardMarkup,
@@ -522,6 +524,10 @@ async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAUL
 # ==================== DYNAMIC KEYBOARD BUILDER ====================
 
 def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
+    """
+    ផ្ទាំងប៊ូតុងបញ្ជាពេញលេញ ៧ ជម្រើសសម្រាប់ Master Owner (240224709) ក្នុង Private Chat
+    រួមមានប៊ូតុង Start Bot ឡើងវិញ
+    """
     keyboard = [
         [
             KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
@@ -534,12 +540,16 @@ def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
         [
             KeyboardButton("🆔 មើលលេខ ID"),
             KeyboardButton("❓ ការណែនាំ & ជំនួយ")
+        ],
+        [
+            KeyboardButton("🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)")
         ]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
 
 def get_client_admin_keyboard() -> ReplyKeyboardMarkup:
+    """ផ្ទាំងប៊ូតុងធម្មតា ២ សម្រាប់ Client Group Admins ក្នុង Group"""
     keyboard = [
         [
             KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
@@ -892,14 +902,17 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
             "📜 ប្រវត្តិការពារ (Logs)", "/logs",
             "❓ ការណែនាំ & ជំនួយ", "/help",
             "🛡️ ឆែកស្ថានភាព Bot", "/status", "/check",
-            "🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id"
+            "🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id",
+            "🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"
         ]:
             try:
                 await update.effective_message.delete()
             except Exception:
                 pass
 
-            if text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
+            if text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
+                await start_command(update, context)
+            elif text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
                 await context.bot.send_message(
                     chat_id=user.id,
                     text="⚙️ **[ផ្ទាំងគ្រប់គ្រង MASTER BOT DASHBOARD]** ⚙️\n\n👑 **សូមស្វាគមន៍ម្ចាស់ Bot**\n👇 សូមចុចលើឈ្មោះ Group ដើម្បីគ្រប់គ្រង៖",
@@ -920,7 +933,9 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
 
     # 2. ករណី Master Owner ប្រើក្នុង Private Chat ផ្ទាល់ខ្លួន
     if is_owner and chat.type == "private":
-        if text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
+        if text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
+            await start_command(update, context)
+        elif text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
             await admin_command(update, context)
         elif text in ["📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients"]:
             await list_groups_command(update, context)
@@ -950,7 +965,8 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
         "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin",
         "📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients",
         "📜 ប្រវត្តិការពារ (Logs)", "/logs",
-        "❓ ការណែនាំ & ជំនួយ", "/help"
+        "❓ ការណែនាំ & ជំនួយ", "/help",
+        "🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"
     ]:
         if chat.type in ["group", "supergroup"]:
             try:
@@ -1000,6 +1016,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• ចុច **[ ⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard ]** ដើម្បីបើក/បិទ Group តាមចិត្ត\n"
             "• ចុច **[ 📋 បញ្ជីអតិថិជន & Group ]** ដើម្បីមើលប្រវត្តិអតិថិជន CRM Vault\n"
             "• ចុច **[ 📜 ប្រវត្តិការពារ (Logs) ]** ដើម្បីពិនិត្យកំណត់ត្រាសន្តិសុខ\n"
+            "• ចុច **[ 🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start) ]** ដើម្បី Reload ផ្ទាំងបញ្ជាឡើងវិញ\n"
             "• 🔒 **រាល់សកម្មភាពរបស់អ្នកក្នុង Group គឺលាក់បាំង ១០០% គ្មានអ្នកណាឃើញឡើយ**\n\n"
             "👉 **សូមចុចបញ្ជាតាមរយៈប៊ូតុងខាងក្រោម៖**"
         )
@@ -1033,9 +1050,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_
         "• ចុចប៊ូតុង `[ 📋 បញ្ជីអតិថិជន & Group ]` នោះ Bot នឹងរៀបចំរបាយការណ៍លម្អិតអំពី ឈ្មោះអតិថិជន, ID, ថ្ងៃ Add ចូល និងស្ថិតិមេរោគ\n\n"
         "📜 **៣. របៀបពិនិត្យមើល Logs សន្តិសុខ៖**\n"
         "• ចុចប៊ូតុង `[ 📜 ប្រវត្តិការពារ (Logs) ]` ដើម្បីមើល ១០ ហេតុការណ៍ចុងក្រោយដែល Bot បានទប់ស្កាត់\n\n"
-        "🔒 **៤. ប្រព័ន្ធ Stealth Privacy Mode៖**\n"
+        "🚀 **៤. របៀប Reload / Restart ផ្ទាំងបញ្ជា៖**\n"
+        "• ចុចប៊ូតុង `[ 🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start) ]` គ្រប់ពេលដែលអ្នកចង់បើក Menu ធំឡើងវិញ\n\n"
+        "🔒 **៥. ប្រព័ន្ធ Stealth Privacy Mode៖**\n"
         "• ទោះបីជាអ្នកនៅក្នុង Group ណាក៏ដោយ ក៏ប៊ូតុង និងសារបញ្ជារបស់អ្នក **មិនបង្ហាញឱ្យសមាជិកក្នុង Group ឃើញឡើយ** (Bot បញ្ជូនមក Private Chat នេះដោយស្វ័យប្រវត្តិ)!\n\n"
-        "⏱️ **៥. កំណត់ពេលលុបសារស្វ័យប្រវត្តិ៖** ៣០ វិនាទី\n"
+        "⏱️ **៦. កំណត់ពេលលុបសារស្វ័យប្រវត្តិ៖** ៣០ វិនាទី\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
     target_id = send_to_user_id if send_to_user_id else update.effective_chat.id
@@ -1446,6 +1465,20 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
 
 async def post_init(application):
     asyncio.create_task(daily_reminder_loop(application))
+    # កំណត់ Telegram Native Command Menu Bar
+    try:
+        commands = [
+            BotCommand("start", "🚀 ចាប់ផ្ដើម Bot / បើកផ្ទាំងបញ្ជា"),
+            BotCommand("admin", "⚙️ ផ្ទាំងគ្រប់គ្រង Dashboard"),
+            BotCommand("clients", "📋 បញ្ជីអតិថិជន & Group"),
+            BotCommand("logs", "📜 ប្រវត្តិការពារ (Logs)"),
+            BotCommand("status", "🛡️ ឆែកស្ថានភាព Bot"),
+            BotCommand("myid", "🆔 មើលលេខ ID"),
+            BotCommand("help", "❓ ការណែនាំ & ជំនួយ")
+        ]
+        await application.bot.set_my_commands(commands)
+    except Exception as e:
+        logger.error(f"Error setting bot commands: {e}")
 
 
 def main():
@@ -1453,7 +1486,7 @@ def main():
         print("Error: TELEGRAM_BOT_TOKEN is missing!")
         return
 
-    print("[*] 30-Second Auto-Clean Security Bot starting with Owner (240224709)...")
+    print("[*] Security Bot starting with Start Button & Full Navigation for Owner (240224709)...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     # Commands
@@ -1484,9 +1517,9 @@ def main():
     app.add_handler(MessageHandler(filters.Sticker.ALL | filters.ANIMATION, handle_regular_messages))
 
     # Stealth Menu Keyboard Router
-    app.add_handler(MessageHandler(filters.Regex(r"^(⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|📋 បញ្ជីអតិថិជន & Group|📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន|📜 ប្រវត្តិការពារ \(Logs\)|🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID|🆔 មើលលេខ ID Group|❓ ការណែនាំ & ជំនួយ)$"), handle_regular_messages))
+    app.add_handler(MessageHandler(filters.Regex(r"^(⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|📋 បញ្ជីអតិថិជន & Group|📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន|📜 ប្រវត្តិការពារ \(Logs\)|🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID|🆔 មើលលេខ ID Group|❓ ការណែនាំ & ជំនួយ|🚀 ចាប់ផ្ដើម Bot ឡើងវិញ \(/start\))$"), handle_regular_messages))
 
-    print("[OK] 30-Second Auto-Clean Security Bot is fully active!")
+    print("[OK] Security Bot with Start Button is fully active!")
     app.run_polling()
 
 

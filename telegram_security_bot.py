@@ -5,19 +5,30 @@
 Author: Cybersecurity & Telegram Defense Bot
 Super Admin: 240224709 (Full Master Permissions Everywhere)
 Features:
-- Master Super Admin (ID: 240224709) មានសិទ្ធិពេញលេញ ១០០% គ្រប់ទីកន្លែង
+- ⚙️ Exclusive Admin Panel Button សម្រាប់តែ Master Super Admin (ID: 240224709)
+- អ្នកដទៃ និងសមាជិកធម្មតាមើលមិនឃើញប៊ូតុង Admin Panel ឡើយ
+- Windows UTF-8 Safe Console Encoding
 - Work-Friendly Link Policy (អនុញ្ញាតឱ្យផ្ញើ Link ការងារបានធម្មតា ១០០%)
 - 🧹 Auto-Delete Service Messages (លុបសារ "User joined/left" ស្វ័យប្រវត្តិ)
 - ⏱️ Self-Destructing Bot Messages (សារ Bot លុបបាត់ទៅវិញក្នុង ៦០ វិនាទី)
 - 🌊 Smart Anti-Flood & Spam Shield (ទប់ស្កាត់ការបាចសារ/Sticker ញាប់ពេក)
 - 👑 Group Admin & Master Super Admin Authorization
-- ⌨️ Bottom Reply Keyboard (ប៊ូតុងជាប់ខាងក្រោមកន្លែងសរសេរ)
 - 🚨 Instant Blacklist Deletion (.apk, .exe, .scr, .bat, .sh, .jpg.apk, etc.)
 - 🌐 VirusTotal Cloud SHA-256 Hash Scanner
 =============================================================================
 """
 
+import sys
 import os
+
+# Fix Windows console UTF-8 encoding issue
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 import re
 import io
 import json
@@ -109,23 +120,17 @@ def is_super_admin(user_id: int) -> bool:
 
 
 async def is_authorized_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """
-    ពិនិត្យសិទ្ធិ៖ Super Admin (240224709) មានសិទ្ធិពេញលេញ ១០០% គ្រប់ទីកន្លែង
-    """
     user = update.effective_user
     chat = update.effective_chat
     if not user:
         return False
 
-    # 1. Master Super Admin មានសិទ្ធិគ្រប់កន្លែងទាំងអស់
     if is_super_admin(user.id):
         return True
 
-    # 2. បើនៅក្នុង Chat ផ្ទាល់ខ្លួន (Private Chat)
     if chat.type == "private":
         return True
 
-    # 3. បើនៅក្នុង Group ឆែកមើលថាតើគាត់ជា Admin នៃ Group នោះឬទេ
     try:
         member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user.id)
         return member.status in ["creator", "administrator"]
@@ -161,15 +166,31 @@ async def send_temp_message(context: ContextTypes.DEFAULT_TYPE, chat_id: int, te
         return None
 
 
-# ==================== BOTTOM KEYBOARD ====================
+# ==================== DYNAMIC BOTTOM KEYBOARD ====================
 
-def get_bottom_menu_keyboard() -> ReplyKeyboardMarkup:
-    keyboard = [
-        [
-            KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
-            KeyboardButton("🆔 មើលលេខ ID Group")
+def get_bottom_menu_keyboard(is_admin: bool = False) -> ReplyKeyboardMarkup:
+    """
+    ប៊ូតុងចុចនៅខាងក្រោមកន្លែងវាយអក្សរ៖
+    - Master Super Admin នឹងឃើញប៊ូតុង [⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel]
+    - អ្នកផ្សេងទៀតនឹងឃើញតែប៊ូតុងធម្មតា ២ ប៉ុណ្ណោះ
+    """
+    if is_admin:
+        keyboard = [
+            [
+                KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
+                KeyboardButton("🆔 មើលលេខ ID Group")
+            ],
+            [
+                KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel")
+            ]
         ]
-    ]
+    else:
+        keyboard = [
+            [
+                KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
+                KeyboardButton("🆔 មើលលេខ ID Group")
+            ]
+        ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
 
@@ -275,7 +296,6 @@ async def check_virustotal_hash(file_bytes: bytes) -> dict:
 # ==================== ACTIONS & PUNISHMENT ====================
 
 async def punish_user(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE, duration_hours: int = MUTE_DURATION_HOURS) -> str:
-    # Super Admin can NEVER be punished
     if is_super_admin(user_id):
         return "👑 (Super Admin Protected)"
 
@@ -331,7 +351,6 @@ async def handle_anti_flood(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not chat or not user or chat.type not in ["group", "supergroup"]:
         return False
 
-    # Super Admin and Group Admins are completely immune to anti-flood
     if is_super_admin(user.id) or await is_authorized_admin(update, context):
         return False
 
@@ -467,7 +486,6 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
 # ==================== TEXT MESSAGE & FLOOD MONITOR ====================
 
 async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ត្រួតពិនិត្យសារអក្សរធម្មតា និងប៊ូតុងចុច"""
     if await handle_anti_flood(update, context):
         return
 
@@ -477,13 +495,16 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
         await status_command(update, context)
     elif text in ["🆔 មើលលេខ ID Group", "/myid", "/id"]:
         await myid_command(update, context)
+    elif text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
+        await admin_command(update, context)
 
 
 # ==================== COMMAND HANDLERS ====================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    role_tag = "👑 **(Master Super Admin)**" if is_super_admin(user.id) else "🛡️ (Group Member/Admin)"
+    is_master = is_super_admin(user.id)
+    role_tag = "👑 **(Master Super Admin)**" if is_master else "🛡️ (Group Member/Admin)"
 
     text = (
         f"🤖 **សួស្តី {user.first_name}! {role_tag}**\n\n"
@@ -502,7 +523,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(
         text=text,
-        reply_markup=get_bottom_menu_keyboard(),
+        reply_markup=get_bottom_menu_keyboard(is_admin=is_master),
         parse_mode=ParseMode.MARKDOWN
     )
 
@@ -510,9 +531,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
+    is_master = is_super_admin(user.id)
 
-    # Master Super Admin 240224709 always has access
-    if not is_super_admin(user.id) and not await is_authorized_admin(update, context):
+    if not is_master and not await is_authorized_admin(update, context):
         msg = await update.message.reply_text(
             f"⛔ **សុំទោស {user.first_name}!**\nមានតែ **Admin នៃក្រុមនេះ** ប៉ុណ្ណោះ ទើបមានសិទ្ធិបញ្ជា និងឆែកស្ថានភាព Bot បាន។",
             parse_mode=ParseMode.MARKDOWN
@@ -537,7 +558,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     group_name = chat.title if chat.type in ["group", "supergroup"] else "Chat ផ្ទាល់ខ្លួន (Private Chat)"
     chat_type_kh = "ក្រុម Telegram (Group)" if chat.type in ["group", "supergroup"] else "ផ្ទាំងសារផ្ទាល់ខ្លួន (Private)"
-    admin_status = "👑 Master Super Admin" if is_super_admin(user.id) else "🛡️ Group Admin"
+    admin_status = "👑 Master Super Admin" if is_master else "🛡️ Group Admin"
 
     text = (
         "🛡️ **[ព័ត៌មាន និងស្ថានភាពសុវត្ថិភាព BOT STATUS]** 🛡️\n"
@@ -558,22 +579,23 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if chat.type in ["group", "supergroup"]:
-        await send_temp_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_bottom_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        await send_temp_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_bottom_menu_keyboard(is_admin=is_master), parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text(text=text, reply_markup=get_bottom_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(text=text, reply_markup=get_bottom_menu_keyboard(is_admin=is_master), parse_mode=ParseMode.MARKDOWN)
 
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
+    is_master = is_super_admin(user.id)
 
-    if not is_super_admin(user.id) and not await is_authorized_admin(update, context):
+    if not is_master and not await is_authorized_admin(update, context):
         msg = await update.message.reply_text("⛔ មានតែ Admin នៃក្រុមនេះទេ ទើបអាចឆែកមើលព័ត៌មានបាន!")
         if chat.type in ["group", "supergroup"]:
             asyncio.create_task(delete_message_after_delay(context.bot, chat.id, msg.message_id, 10))
         return
 
-    admin_tag = "👑 **(Master Super Admin)**" if is_super_admin(user.id) else "🛡️ (Group Admin)"
+    admin_tag = "👑 **(Master Super Admin)**" if is_master else "🛡️ (Group Admin)"
 
     text = (
         f"🆔 **ព័ត៌មានអត្តសញ្ញាណ និង GROUP ID:**\n\n"
@@ -585,9 +607,9 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if chat.type in ["group", "supergroup"]:
-        await send_temp_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_bottom_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        await send_temp_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_bottom_menu_keyboard(is_admin=is_master), parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text(text=text, reply_markup=get_bottom_menu_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text(text=text, reply_markup=get_bottom_menu_keyboard(is_admin=is_master), parse_mode=ParseMode.MARKDOWN)
 
 
 async def protect_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -690,10 +712,10 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
 def main():
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
-        print("❌ Error: សូមកំណត់ TELEGRAM_BOT_TOKEN ក្នុងឯកសារ .env ជាមុនសិន!")
+        print("Error: TELEGRAM_BOT_TOKEN is missing!")
         return
 
-    print("🛡️ Security Bot is starting with Master Super Admin (240224709)...")
+    print("[*] Security Bot is starting with Master Super Admin (240224709)...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
     # Commands
@@ -718,7 +740,10 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_regular_messages))
     app.add_handler(MessageHandler(filters.Sticker.ALL | filters.ANIMATION, handle_regular_messages))
 
-    print("✅ Bot is fully active and Master Super Admin is recognized!")
+    # Bottom Menu Keyboard Button Filter
+    app.add_handler(MessageHandler(filters.Regex(r"^(🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID Group|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel)$"), handle_regular_messages))
+
+    print("[OK] Bot is fully active and Master Super Admin is recognized!")
     app.run_polling()
 
 

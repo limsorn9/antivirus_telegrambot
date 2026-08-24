@@ -1,18 +1,16 @@
 """
 =============================================================================
-🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (CLIENT CRM & DATA VAULT)
+🛡️ TELEGRAM GROUP MALWARE & THREAT GUARD BOT (STEALTH MASTER PRIVACY EDITION)
 =============================================================================
 Author: Cybersecurity & Telegram Defense Bot
-Master Super Admin: 240224709 (Global Authority Everywhere)
+Sole Bot Owner: 240224709 (Master Super Admin)
 
-Enterprise Client CRM & History Vault:
-1. 🗄️ Permanent Client Database (clients_database.json): រៀបចំប្រវត្តិអតិថិជនលម្អិត ១០០% មិនបាត់បង់
-2. 👤 Client Contact & Profile: ឈ្មោះអតិថិជន, Username, User ID, ឈ្មោះ Group, Group ID, ថ្ងៃ Add ចូល
-3. 💳 Subscription & License Tracking: ស្ថានភាពសេវាកម្ម, ថ្ងៃចាប់ផ្ដើម, ស្ថិតិមេរោគដែលបានការពារជូន
-4. 🙈 Privacy-Shield: មិនបង្ហាញលេខសម្គាល់ User ID ទៅកាន់អ្នកណាឡើយ (ឃើញតែ Master Admin ក្នុង Private Chat)
-5. ⏱️ 60-Second Auto-Delete ក្នុង Group
-6. 📢 2x/Day Upsell Reminders
-7. 🔒 Strict Admin Lock & Group Isolation
+Stealth Master Privacy Engine (100% Invisible in Groups):
+1. 👻 Stealth Group Deletion: រាល់សារ និងពាក្យបញ្ជាដែល Master Owner វាយក្នុង Group ត្រូវលុបចោលភ្លាមៗ
+2. 🔒 Private Chat Redirection: គ្រប់ Dashboard, បញ្ជីអតិថិជន CRM, និង Logs ត្រូវបានបញ្ជូនទៅ Private Chat របស់ Master ផ្ទាល់
+3. 🙈 Zero Master Button Leak: ផ្ទាំងប៊ូតុងរបស់ Master Owner នឹងបង្ហាញតែក្នុង Private Chat ប៉ុណ្ណោះ (មិនបង្ហាញក្នុង Group ឡើយ)
+4. 🛡️ Client Admin Protection: អតិថិជនឃើញតែប៊ូតុងធម្មតា ២ ក្នុង Group (សារឆ្លើយតបលុបបាត់ក្នុង 60s)
+5. 🤖 Automated Security: ស្កេនមេរោគ, លុប Join/Leave, ទប់ Flood Spam, 2x/Day Upsell Reminders
 =============================================================================
 """
 
@@ -43,6 +41,7 @@ from telegram import (
     ChatMemberUpdated,
     ReplyKeyboardMarkup,
     KeyboardButton,
+    ReplyKeyboardRemove,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
@@ -62,7 +61,7 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY", "").strip()
 
-# កំណត់ Super Admin IDs (បញ្ចូល ID: 240224709 ជា Master Admin អចិន្ត្រៃយ៍)
+# កំណត់ Master Super Admin / Sole Owner (ID: 240224709)
 SUPER_ADMIN_IDS = {"240224709"}
 raw_env_admins = os.getenv("SUPER_ADMIN_ID", os.getenv("ADMIN_ID", "")).split(",")
 for aid in raw_env_admins:
@@ -95,7 +94,7 @@ SCAN_CACHE = {}
 FLOOD_TRACKER = {}
 
 
-# ==================== PERMANENT STORAGE & CLIENT VAULT ====================
+# ==================== PERMANENT STORAGE ====================
 
 def load_json_file(file_path: str, default_val: any) -> any:
     if os.path.exists(file_path):
@@ -121,13 +120,9 @@ AUDIT_LOGS = load_json_file(AUDIT_LOG_FILE, [])
 
 
 def sync_client_record(chat, user=None, is_auth=None, is_enabled=None):
-    """
-    កត់ត្រា និងរក្សាទុកប្រវត្តិអតិថិជនលម្អិតជាអចិន្ត្រៃយ៍ក្នុង Client Vault (មិនឱ្យបាត់បង់ឡើយ)
-    """
     chat_key = str(chat.id)
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 1. ធ្វើបច្ចុប្បន្នភាព GROUPS_CONFIG
     if chat_key not in GROUPS_CONFIG:
         GROUPS_CONFIG[chat_key] = {
             "title": chat.title or "Unknown Group",
@@ -151,7 +146,6 @@ def sync_client_record(chat, user=None, is_auth=None, is_enabled=None):
 
     save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
 
-    # 2. ធ្វើបច្ចុប្បន្នភាព CLIENTS_DB (ប្រវត្តិអតិថិជនលម្អិត)
     if chat_key not in CLIENTS_DB:
         CLIENTS_DB[chat_key] = {
             "client_group_id": chat.id,
@@ -168,8 +162,7 @@ def sync_client_record(chat, user=None, is_auth=None, is_enabled=None):
                 "threats_blocked": 0,
                 "spams_blocked": 0,
                 "last_incident": "None"
-            },
-            "service_package": "Enterprise Malware Shield + Anti-Flood + VirusTotal Cloud"
+            }
         }
     else:
         CLIENTS_DB[chat_key]["client_group_name"] = chat.title or CLIENTS_DB[chat_key].get("client_group_name", "Unknown Group")
@@ -204,7 +197,6 @@ def record_audit_event(event_type: str, chat_id: int, chat_title: str, user_id: 
         AUDIT_LOGS.pop()
     save_json_file(AUDIT_LOG_FILE, AUDIT_LOGS)
 
-    # Update Client Security Stats
     chat_key = str(chat_id)
     if chat_key in CLIENTS_DB:
         if "MALWARE" in event_type:
@@ -215,10 +207,32 @@ def record_audit_event(event_type: str, chat_id: int, chat_title: str, user_id: 
         save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
 
 
-# ==================== MASTER APPROVAL & PERMISSIONS ====================
+# ==================== 👑 PERMISSION CONTROLLER ====================
 
-def is_super_admin(user_id: int) -> bool:
+def is_sole_master_owner(user_id: int) -> bool:
+    """ពិនិត្យមើលថាតើជាម្ចាស់ Bot ពិតប្រាកដតែម្នាក់គត់ ឬទេ (ID: 240224709)"""
     return str(user_id) in SUPER_ADMIN_IDS
+
+
+async def is_client_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """ពិនិត្យមើលថាតើជា Admin ពិតប្រាកដនៃ Group នោះ ឬទេ"""
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user or not chat:
+        return False
+
+    if is_sole_master_owner(user.id):
+        return True
+
+    if chat.type == "private":
+        return False
+
+    try:
+        member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user.id)
+        return member.status in ["creator", "administrator"]
+    except Exception as e:
+        logger.error(f"Error checking group admin status: {e}")
+        return False
 
 
 def is_group_authorized(chat_id: int) -> bool:
@@ -226,26 +240,6 @@ def is_group_authorized(chat_id: int) -> bool:
     if chat_key in GROUPS_CONFIG:
         return GROUPS_CONFIG[chat_key].get("is_authorized", False) and GROUPS_CONFIG[chat_key].get("is_enabled", False)
     return False
-
-
-async def is_authorized_group_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    user = update.effective_user
-    chat = update.effective_chat
-    if not user or not chat:
-        return False
-
-    if is_super_admin(user.id):
-        return True
-
-    if chat.type == "private":
-        return True
-
-    try:
-        member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user.id)
-        return member.status in ["creator", "administrator"]
-    except Exception as e:
-        logger.error(f"Error checking admin status: {e}")
-        return False
 
 
 # ==================== ⏱️ 60-SECOND AUTO-DELETE HELPER ====================
@@ -299,7 +293,6 @@ async def daily_reminder_loop(app):
                             asyncio.create_task(delete_message_after_delay(app.bot, chat_id, msg.message_id, BOT_MSG_DELETE_SECONDS))
                             GROUPS_CONFIG[chat_id_str]["last_reminder_ts"] = now_ts
                             save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
-                            logger.info(f"Sent 2x/day reminder to unauthorized group {chat_id_str}")
                         except Exception as e:
                             logger.error(f"Cannot send reminder to {chat_id_str}: {e}")
         except Exception as err:
@@ -372,30 +365,37 @@ async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAUL
         await send_auto_delete_message(context, chat.id, pending_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
 
 
-# ==================== DYNAMIC BOTTOM KEYBOARD ====================
+# ==================== DYNAMIC KEYBOARD BUILDER ====================
 
-def get_bottom_menu_keyboard(is_master: bool = False) -> ReplyKeyboardMarkup:
-    if is_master:
-        keyboard = [
-            [
-                KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
-                KeyboardButton("🆔 មើលលេខ ID Group")
-            ],
-            [
-                KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel"),
-                KeyboardButton("📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម")
-            ],
-            [
-                KeyboardButton("📜 ប្រវត្តិការពារ (Logs)")
-            ]
+def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
+    """
+    ផ្ទាំងប៊ូតុងបញ្ជាពេញលេញ ៦ ជម្រើសសម្រាប់ Master Owner (240224709) ក្នុង Private Chat
+    """
+    keyboard = [
+        [
+            KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
+            KeyboardButton("📋 បញ្ជីអតិថិជន & Group")
+        ],
+        [
+            KeyboardButton("📜 ប្រវត្តិការពារ (Logs)"),
+            KeyboardButton("🛡️ ឆែកស្ថានភាព Bot")
+        ],
+        [
+            KeyboardButton("🆔 មើលលេខ ID"),
+            KeyboardButton("❓ ការណែនាំ & ជំនួយ")
         ]
-    else:
-        keyboard = [
-            [
-                KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
-                KeyboardButton("🆔 មើលលេខ ID Group")
-            ]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
+
+
+def get_client_admin_keyboard() -> ReplyKeyboardMarkup:
+    """ផ្ទាំងប៊ូតុងធម្មតា ២ សម្រាប់ Client Group Admins ក្នុង Group"""
+    keyboard = [
+        [
+            KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
+            KeyboardButton("🆔 មើលលេខ ID Group")
         ]
+    ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
 
 
@@ -501,8 +501,8 @@ async def check_virustotal_hash(file_bytes: bytes) -> dict:
 # ==================== ACTIONS & PUNISHMENT ====================
 
 async def punish_user(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_TYPE, duration_hours: int = MUTE_DURATION_HOURS) -> str:
-    if is_super_admin(user_id):
-        return "👑 (Super Admin Protected)"
+    if is_sole_master_owner(user_id):
+        return "👑 (Sole Master Admin Protected)"
 
     try:
         if PUNISHMENT_MODE == "KICK":
@@ -556,7 +556,7 @@ async def handle_anti_flood(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not chat or not user or chat.type not in ["group", "supergroup"]:
         return False
 
-    if is_super_admin(user.id) or await is_authorized_group_admin(update, context):
+    if is_sole_master_owner(user.id) or await is_client_group_admin(update, context):
         return False
 
     now = time.time()
@@ -715,7 +715,7 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"Error inspecting archive: {e}")
 
 
-# ==================== TEXT MESSAGE & BUTTON MONITOR ====================
+# ==================== 👻 STEALTH MASTER ROUTER (INVISIBLE IN GROUPS) ====================
 
 async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
@@ -725,39 +725,86 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
         return
 
     text = update.message.text.strip() if update.message and update.message.text else ""
+    is_owner = is_sole_master_owner(user.id)
+    is_admin = await is_client_group_admin(update, context)
 
-    if text in [
-        "🛡️ ឆែកស្ថានភាព Bot", "/status", "/check",
-        "🆔 មើលលេខ ID Group", "/myid", "/id",
-        "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin",
-        "📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម", "/groups", "/clients",
-        "📜 ប្រវត្តិការពារ (Logs)", "/logs"
-    ]:
-        if chat.type in ["group", "supergroup"]:
-            if not await is_authorized_group_admin(update, context):
-                try:
-                    await update.effective_message.delete()
-                except Exception:
-                    pass
-                await send_auto_delete_message(
-                    context,
-                    chat.id,
-                    f"⛔ **សុំទោស {user.first_name}!**\nសមាជិកទូទៅមិនមានសិទ្ធិបញ្ជា ឬឆែក Bot ក្នុងក្រុមនេះឡើយ (សម្រាប់តែ Admin ប៉ុណ្ណោះ)។",
-                    delay=5,
+    # 1. ករណី Master Owner វាយពាក្យបញ្ជា ឬចុចប៊ូតុងក្នុង Group ➡️ លុបសារពី Group ចោលភ្លាម & ផ្ញើទៅ Private Chat
+    if is_owner and chat.type in ["group", "supergroup"]:
+        if text in [
+            "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin",
+            "📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients",
+            "📜 ប្រវត្តិការពារ (Logs)", "/logs",
+            "❓ ការណែនាំ & ជំនួយ", "/help",
+            "🛡️ ឆែកស្ថានភាព Bot", "/status", "/check",
+            "🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id"
+        ]:
+            # លុបសារ Master Owner ពី Group ភ្លាមៗ (Stealth Delete)
+            try:
+                await update.effective_message.delete()
+            except Exception:
+                pass
+
+            # បញ្ជូនចម្លើយទៅ Private Chat ផ្ទាល់ខ្លួនរបស់ Master Owner
+            if text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
+                await context.bot.send_message(
+                    chat_id=user.id,
+                    text="⚙️ **[ផ្ទាំងគ្រប់គ្រង MASTER BOT DASHBOARD]** ⚙️\n\n👑 **សូមស្វាគមន៍ម្ចាស់ Bot**\n👇 សូមចុចលើឈ្មោះ Group ដើម្បីគ្រប់គ្រង៖",
+                    reply_markup=generate_master_dashboard_keyboard(),
                     parse_mode=ParseMode.MARKDOWN
                 )
-                return
+            elif text in ["📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients"]:
+                await list_groups_command(update, context, send_to_user_id=user.id)
+            elif text in ["📜 ប្រវត្តិការពារ (Logs)", "/logs"]:
+                await logs_command(update, context, send_to_user_id=user.id)
+            elif text in ["❓ ការណែនាំ & ជំនួយ", "/help"]:
+                await help_command(update, context, send_to_user_id=user.id)
+            elif text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
+                await status_command(update, context)
+            elif text in ["🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id"]:
+                await myid_command(update, context)
+            return
 
-        if text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
-            await status_command(update, context)
-        elif text in ["🆔 មើលលេខ ID Group", "/myid", "/id"]:
-            await myid_command(update, context)
-        elif text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
+    # 2. ករណី Master Owner ប្រើក្នុង Private Chat ផ្ទាល់ខ្លួន
+    if is_owner and chat.type == "private":
+        if text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
             await admin_command(update, context)
-        elif text in ["📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម", "/groups", "/clients"]:
+        elif text in ["📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients"]:
             await list_groups_command(update, context)
         elif text in ["📜 ប្រវត្តិការពារ (Logs)", "/logs"]:
             await logs_command(update, context)
+        elif text in ["❓ ការណែនាំ & ជំនួយ", "/help"]:
+            await help_command(update, context)
+        elif text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
+            await status_command(update, context)
+        elif text in ["🆔 មើលលេខ ID", "/myid", "/id"]:
+            await myid_command(update, context)
+        return
+
+    # 3. ករណី Client Group Admin ប្រើក្នុង Group របស់ពួកគេ
+    if is_admin and chat.type in ["group", "supergroup"]:
+        if text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
+            await status_command(update, context)
+            return
+        elif text in ["🆔 មើលលេខ ID Group", "/myid", "/id"]:
+            await myid_command(update, context)
+            return
+
+    # 4. ប្រសិនបើសមាជិកធម្មតា ឬអ្នកគ្មានសិទ្ធិព្យាយាមប្រើ
+    if text in [
+        "🛡️ ឆែកស្ថានភាព Bot", "/status", "/check",
+        "🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id",
+        "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin",
+        "📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients",
+        "📜 ប្រវត្តិការពារ (Logs)", "/logs",
+        "❓ ការណែនាំ & ជំនួយ", "/help"
+    ]:
+        if chat.type in ["group", "supergroup"]:
+            try:
+                await update.effective_message.delete()
+            except Exception:
+                pass
+        else:
+            await update.message.reply_text("⛔ **សុំទោស! មុខងារនេះសម្រាប់តែម្ចាស់ Bot ផ្ទាល់ (Master Owner) ប៉ុណ្ណោះ។**", reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
 
 
 # ==================== COMMAND HANDLERS ====================
@@ -765,59 +812,100 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
+    is_owner = is_sole_master_owner(user.id)
 
-    is_master = is_super_admin(user.id)
-    role_tag = "👑 **(Master Super Admin)**" if is_master else "🛡️ (Group Admin)"
-
-    if chat.type in ["group", "supergroup"] and not await is_authorized_group_admin(update, context):
+    # ក្នុង Group៖ បើ Master វាយ /start ➡️ លុបសារភ្លាម & ផ្ញើទៅ Private Chat
+    if chat.type in ["group", "supergroup"]:
         try:
             await update.effective_message.delete()
         except Exception:
             pass
+
+        if is_owner:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=f"👑 **សូមស្វាគមន៍ម្ចាស់ Bot! (Master Owner)**\n\n🔒 **[Stealth Mode Active]** ផ្ទាំងបញ្ជា និងប៊ូតុងគ្រប់គ្រងរបស់អ្នក ត្រូវបានរក្សាជាសម្ងាត់ក្នុង Chat ផ្ទាល់ខ្លួននេះ!",
+                reply_markup=get_master_owner_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        elif await is_client_group_admin(update, context):
+            text = (
+                f"🤖 **សួស្តី {user.first_name}!**\n\n"
+                "ខ្ញុំជា Bot ការពារមេរោគ និងគ្រប់គ្រងសុវត្ថិភាព Group Telegram!\n\n"
+                "🛡️ **មុខងារសម្រាប់ Group Admin៖**\n"
+                "👉 `[ 🛡️ ឆែកស្ថានភាព Bot ]` : ឆែកស្ថានភាពការពារក្នុង Group\n"
+                "👉 `[ 🆔 មើលលេខ ID Group ]` : មើលលេខសម្គាល់ Group ID\n\n"
+                "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ៦០ វិនាទី)*"
+            )
+            await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_client_admin_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # ក្នុង Private Chat
+    if is_owner:
+        text = (
+            f"👑 **សូមស្វាគមន៍ម្ចាស់ Bot ផ្ទាល់! (Sole Master Owner - ID: `{user.id}`)**\n\n"
+            "🎛️ **ផ្ទាំងបញ្ជាគ្រប់គ្រងពេញលេញ (100% Stealth & Button-Driven)៖**\n"
+            "• ចុច **[ ⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard ]** ដើម្បីបើក/បិទ Group តាមចិត្ត\n"
+            "• ចុច **[ 📋 បញ្ជីអតិថិជន & Group ]** ដើម្បីមើលប្រវត្តិអតិថិជន CRM Vault\n"
+            "• ចុច **[ 📜 ប្រវត្តិការពារ (Logs) ]** ដើម្បីពិនិត្យកំណត់ត្រាសន្តិសុខ\n"
+            "• 🔒 **រាល់សកម្មភាពរបស់អ្នកក្នុង Group គឺលាក់បាំង ១០០% គ្មានអ្នកណាឃើញឡើយ**\n\n"
+            "👉 **សូមចុចបញ្ជាតាមរយៈប៊ូតុងខាងក្រោម៖**"
+        )
+        await update.message.reply_text(
+            text=text,
+            reply_markup=get_master_owner_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+    else:
+        text = (
+            f"🤖 **សួស្តី {user.first_name}!**\n\n"
+            "ខ្ញុំជា Bot ការពារមេរោគ និងគ្រប់គ្រងសុវត្ថិភាព Group Telegram!\n\n"
+            "🔒 **ប្រព័ន្ធគ្រប់គ្រង៖** Bot នេះត្រូវបានគ្រប់គ្រងដោយ Master Super Admin។"
+        )
+        await update.message.reply_text(text=text, reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
+
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_to_user_id=None):
+    user = update.effective_user
+    if not is_sole_master_owner(user.id):
         return
 
     text = (
-        f"🤖 **សួស្តី {user.first_name}! {role_tag}**\n\n"
-        "ខ្ញុំជា Bot ការពារមេរោគ និងគ្រប់គ្រងសុវត្ថិភាព Group Telegram!\n\n"
-        "🛡️ **មុខងារការពារ និងគ្រប់គ្រង៖**\n"
-        "✅ ស្កេន និងលុប `.apk`, `.exe`, `.scr`, `.bat`, `.sh` ដោយស្វ័យប្រវត្តិ\n"
-        "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (Double Extension ដូចជា `.jpg.apk`, `.pdf.apk`)\n"
-        "✅ ឆែកស្កេន Cloud Hash លើ VirusTotal សម្រាប់ហ្វាល់ `.zip` និង `.rar`\n"
-        "✅ ⏱️ **រាល់សារទាំងអស់ក្នុង Group នឹងលុបបាត់ទៅវិញក្នុង ៦០ វិនាទី**\n"
-        "✅ 🗄️ **ប្រព័ន្ធរក្សាទុកប្រវត្តិអតិថិជនជាអចិន្ត្រៃយ៍ (Client Database)**\n"
-        "✅ 💼 អនុញ្ញាត Link & Document ការងារ ១០០%\n\n"
-        "🔐 **ចំណាំ៖** មានតែ **Admin នៃក្រុមនីមួយៗ** និង **Master Super Admin** ប៉ុណ្ណោះ ទើបមានសិទ្ធិបញ្ជា Bot។"
+        "📖 **[សៀវភៅណែនាំគ្រប់គ្រង BOT - MASTER OWNER GUIDE]** 📖\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👑 **១. របៀបផ្ដល់សិទ្ធិ ឬបើក/បិទ Group៖**\n"
+        "• ចុចប៊ូតុង `[ ⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard ]`\n"
+        "• ចុចលើឈ្មោះ Group ណាមួយ ដើម្បីចូលទៅកាន់ផ្ទាំងគ្រប់គ្រង Group នោះដោយផ្ទាល់\n"
+        "• អ្នកអាចចុច `[ 🟢 បើកការពារ ]`, `[ 🟡 ផ្អាកការពារ ]`, ឬ `[ 🗑️ លុប Group ]`\n\n"
+        "🗄️ **២. របៀបមើលប្រវត្តិអតិថិជន (Client CRM)៖**\n"
+        "• ចុចប៊ូតុង `[ 📋 បញ្ជីអតិថិជន & Group ]` នោះ Bot នឹងរៀបចំរបាយការណ៍លម្អិតអំពី ឈ្មោះអតិថិជន, ID, ថ្ងៃ Add ចូល និងស្ថិតិមេរោគ\n\n"
+        "📜 **៣. របៀបពិនិត្យមើល Logs សន្តិសុខ៖**\n"
+        "• ចុចប៊ូតុង `[ 📜 ប្រវត្តិការពារ (Logs) ]` ដើម្បីមើល ១០ ហេតុការណ៍ចុងក្រោយដែល Bot បានទប់ស្កាត់\n\n"
+        "🔒 **៤. ប្រព័ន្ធ Stealth Privacy Mode៖**\n"
+        "• ទោះបីជាអ្នកនៅក្នុង Group ណាក៏ដោយ ក៏ប៊ូតុង និងសារបញ្ជារបស់អ្នក **មិនបង្ហាញឱ្យសមាជិកក្នុង Group ឃើញឡើយ** (Bot បញ្ជូនមក Private Chat នេះដោយស្វ័យប្រវត្តិ)!\n"
+        "━━━━━━━━━━━━━━━━━━━━"
     )
-
-    if chat.type in ["group", "supergroup"]:
-        await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_bottom_menu_keyboard(is_master=is_master), parse_mode=ParseMode.MARKDOWN)
-    else:
-        await update.message.reply_text(text=text, reply_markup=get_bottom_menu_keyboard(is_master=is_master), parse_mode=ParseMode.MARKDOWN)
+    target_id = send_to_user_id if send_to_user_id else update.effective_chat.id
+    await context.bot.send_message(chat_id=target_id, text=text, reply_markup=get_master_owner_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     user = update.effective_user
-    is_master = is_super_admin(user.id)
+    is_owner = is_sole_master_owner(user.id)
+    is_admin = await is_client_group_admin(update, context)
 
-    if not is_master and not await is_authorized_group_admin(update, context):
+    if not is_owner and not is_admin:
         if chat.type in ["group", "supergroup"]:
             try:
                 await update.effective_message.delete()
             except Exception:
                 pass
-            await send_auto_delete_message(
-                context,
-                chat.id,
-                f"⛔ **សុំទោស {user.first_name}!**\nសមាជិកទូទៅមិនមានសិទ្ធិបញ្ជា ឬឆែកស្ថានភាព Bot ក្នុងក្រុមនេះឡើយ (សម្រាប់តែ Admin ប៉ុណ្ណោះ)។",
-                delay=5,
-                parse_mode=ParseMode.MARKDOWN
-            )
         return
 
     is_authorized = is_group_authorized(chat.id)
 
-    if not is_authorized and not is_master:
+    if not is_authorized and not is_owner:
         unauth_text = (
             "⚠️ **[ក្រុមមិនទាន់បានទិញសិទ្ធិប្រើប្រាស់ - UNAUTHORIZED]**\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
@@ -834,12 +922,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(unauth_text, parse_mode=ParseMode.MARKDOWN)
         return
 
-    shield_status_str = "🟢 **កំពុងការពារយ៉ាងសកម្ម (ACTIVE / SHIELD ON)**" if is_authorized else "🔴 **មិនទាន់ដំណើរការ (INACTIVE)**"
+    shield_status_str = "🟢 **កំពុងការពារយ៉ាងសកម្ម (ACTIVE / SHIELD ON)**" if is_authorized else "🔴 **មិនទាន់បើកការពារ (INACTIVE)**"
     vt_status = "✅ **ភ្ជាប់រួចរាល់ (Connected)**" if VIRUSTOTAL_API_KEY and VIRUSTOTAL_API_KEY != "YOUR_VIRUSTOTAL_API_KEY_HERE" else "⚠️ **Local Shield Only**"
 
     group_name = chat.title if chat.type in ["group", "supergroup"] else "Chat ផ្ទាល់ខ្លួន (Private Chat)"
     chat_type_kh = "ក្រុម Telegram (Group)" if chat.type in ["group", "supergroup"] else "ផ្ទាំងសារផ្ទាល់ខ្លួន (Private)"
-    admin_status = "👑 Master Super Admin" if is_master else "🛡️ Group Admin"
 
     text = (
         "🛡️ **[ព័ត៌មាន និងស្ថានភាពសុវត្ថិភាព BOT STATUS]** 🛡️\n"
@@ -847,12 +934,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👥 **ឈ្មោះក្រុម:** `{group_name}`\n"
         f"🆔 **លេខ Group ID:** `{chat.id}`\n"
         f"🏷️ **ប្រភេទ:** {chat_type_kh}\n"
-        f"👤 **Admin ពិនិត្យ:** {user.full_name} (`{admin_status}`)\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"🔰 **ស្ថានភាពការពារ:** {shield_status_str}\n"
         f"⚡ **ប្រព័ន្ធស្កេនមេរោគ (Local):** ✅ សកម្ម (.apk, .exe, .scr, .bat, .sh, .jpg.apk)\n"
         f"🌐 **VirusTotal Cloud Scan:** {vt_status}\n"
-        f"🔐 **Master License:** ✅ ទទួលបានអាជ្ញាប័ណ្ណផ្លូវការ\n"
         f"⏱️ **Auto-Delete Timer:** ✅ ៦០ វិនាទី\n"
         f"⚖️ **វិធានការលើអ្នកល្មើស:** លុបសារមេរោគ + {PUNISHMENT_MODE} {MUTE_DURATION_HOURS} ម៉ោង\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -860,23 +945,26 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if chat.type in ["group", "supergroup"]:
-        await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_bottom_menu_keyboard(is_master=is_master), parse_mode=ParseMode.MARKDOWN)
+        # ក្នុង Group មិនបង្ហាញ Master Keyboard ឡើយ (ការពារកុំឱ្យគេឃើញ)
+        kb = get_client_admin_keyboard() if not is_owner else None
+        await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text(text=text, reply_markup=get_bottom_menu_keyboard(is_master=is_master), parse_mode=ParseMode.MARKDOWN)
+        kb = get_master_owner_keyboard() if is_owner else ReplyKeyboardRemove()
+        await update.message.reply_text(text=text, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
 
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
-    is_master = is_super_admin(user.id)
+    is_owner = is_sole_master_owner(user.id)
+    is_admin = await is_client_group_admin(update, context)
 
-    if not is_master and not await is_authorized_group_admin(update, context):
+    if not is_owner and not is_admin:
         if chat.type in ["group", "supergroup"]:
             try:
                 await update.effective_message.delete()
             except Exception:
                 pass
-            await send_auto_delete_message(context, chat.id, "⛔ សមាជិកទូទៅមិនមានសិទ្ធិឆែកព័ត៌មាននេះឡើយ!", delay=5)
         return
 
     is_auth = is_group_authorized(chat.id)
@@ -888,50 +976,115 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👥 **ឈ្មោះក្រុម:** `{chat.title}`\n"
             f"💬 **លេខ Group ID របស់អ្នក:** `{chat.id}`\n"
             f"🔐 **ស្ថានភាពសេវាកម្ម:** {license_status}\n\n"
-            f"💡 *(សូមយកលេខ Group ID `{chat.id}` នេះ ផ្ញើទៅកាន់ Master Admin ដើម្បីបើកសិទ្ធិប្រើប្រាស់)*\n\n"
+            f"💡 *(សូមយកលេខ Group ID `{chat.id}` នេះ ផ្ញើទៅកាន់ Master Admin ដើម្បីទិញ ឬបើកសិទ្ធិប្រើប្រាស់)*\n\n"
             f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ៦០ វិនាទី)*"
         )
-        await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_bottom_menu_keyboard(is_master=is_master), parse_mode=ParseMode.MARKDOWN)
+        kb = get_client_admin_keyboard() if not is_owner else None
+        await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
     else:
-        text = (
-            f"🆔 **ព័ត៌មានអត្តសញ្ញាណ MASTER ADMIN៖**\n\n"
-            f"👤 **ឈ្មោះ:** {user.full_name} 👑 **(Master Super Admin)**\n"
-            f"🔢 **User ID របស់អ្នក:** `{user.id}`\n"
-            f"🛡️ **សិទ្ធិប្រព័ន្ធ:** Master Global Authorization (100%)\n"
-        )
-        await update.message.reply_text(text=text, reply_markup=get_bottom_menu_keyboard(is_master=is_master), parse_mode=ParseMode.MARKDOWN)
+        if is_owner:
+            text = (
+                f"🆔 **ព័ត៌មានអត្តសញ្ញាណ SOLE MASTER OWNER៖**\n\n"
+                f"👤 **ឈ្មោះ:** {user.full_name} 👑 **(Master Super Admin)**\n"
+                f"🔢 **User ID របស់អ្នក:** `{user.id}`\n"
+                f"🛡️ **សិទ្ធិប្រព័ន្ធ:** ម្ចាស់ Bot ពេញលេញ ១០០% ធ្វើអ្វីបានគ្រប់យ៉ាង\n"
+            )
+        else:
+            text = (
+                f"🆔 **ព័ត៌មានអត្តសញ្ញាណ៖**\n\n"
+                f"👤 **ឈ្មោះ:** {user.full_name}\n"
+                f"🔢 **User ID របស់អ្នក:** `{user.id}`\n"
+            )
+        kb = get_master_owner_keyboard() if is_owner else ReplyKeyboardRemove()
+        await update.message.reply_text(text=text, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
 
 
-async def protect_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ==================== MASTER OWNER: DASHBOARD & DRILL-DOWN SUBMENU ====================
+
+def generate_master_dashboard_keyboard() -> InlineKeyboardMarkup:
+    keyboard = []
+    if not GROUPS_CONFIG:
+        keyboard.append([InlineKeyboardButton("❌ មិនទាន់មាន Group ណាភ្ជាប់នៅឡើយទេ", callback_data="none")])
+    else:
+        for chat_id, data in GROUPS_CONFIG.items():
+            title = data.get("title", f"Group {chat_id}")
+            is_auth = data.get("is_authorized", False)
+            is_en = data.get("is_enabled", False)
+
+            if is_auth and is_en:
+                status_emoji = "🟢 [ON]"
+            elif is_auth and not is_en:
+                status_emoji = "🟡 [PAUSE]"
+            else:
+                status_emoji = "🔴 [UNAUTH]"
+
+            btn_text = f"{status_emoji} {title[:18]}"
+            callback_data = f"manage_grp_{chat_id}"
+            keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
+
+    keyboard.append([
+        InlineKeyboardButton("🔄 Refresh បញ្ជី", callback_data="dash_refresh"),
+        InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients")
+    ])
+    keyboard.append([
+        InlineKeyboardButton("📜 កំណត់ត្រា Logs", callback_data="dash_logs")
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def generate_group_detail_keyboard(chat_id: str) -> InlineKeyboardMarkup:
+    gdata = GROUPS_CONFIG.get(str(chat_id), {})
+    is_auth = gdata.get("is_authorized", False)
+    is_en = gdata.get("is_enabled", False)
+
+    keyboard = []
+    if not is_auth or not is_en:
+        keyboard.append([InlineKeyboardButton("🟢 បើកដំណើរការការពារ (Turn ON)", callback_data=f"set_on_{chat_id}")])
+    if is_auth and is_en:
+        keyboard.append([InlineKeyboardButton("🟡 ផ្អាកដំណើរការការពារ (Pause)", callback_data=f"set_off_{chat_id}")])
+
+    keyboard.append([
+        InlineKeyboardButton("🗑️ លុប Group នេះចេញ", callback_data=f"set_del_{chat_id}"),
+        InlineKeyboardButton("🔙 ត្រឡប់ក្រោយ", callback_data="dash_back")
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
     chat = update.effective_chat
-    user = update.effective_user
-    if chat.type in ["group", "supergroup"]:
-        if not is_super_admin(user.id) and not await is_authorized_group_admin(update, context):
-            return
-        sync_client_record(chat, user, is_auth=True, is_enabled=True)
-        await send_auto_delete_message(context, chat.id, "🟢 **ប្រព័ន្ធការពារ Malware Shield ត្រូវបានបើកដំណើរការ (ON) ក្នុង Group នេះ!**", delay=15, parse_mode=ParseMode.MARKDOWN)
-
-
-async def protect_off_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    user = update.effective_user
-    if chat.type in ["group", "supergroup"]:
-        if not is_super_admin(user.id) and not await is_authorized_group_admin(update, context):
-            return
-        sync_client_record(chat, user, is_auth=None, is_enabled=False)
-        await send_auto_delete_message(context, chat.id, "🔴 **ប្រព័ន្ធការពារ Malware Shield ត្រូវបានបិទដំណើរការ (OFF) ជាបណ្ដោះអាសន្ន!**", delay=15, parse_mode=ParseMode.MARKDOWN)
-
-
-# ==================== MASTER SUPER ADMIN: CLIENT CRM & DATABASE ====================
-
-async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """របាយការណ៍អតិថិជន និងប្រវត្តិក្រុមលម្អិត ១០០% សម្រាប់ Master Super Admin"""
-    user = update.effective_user
-    if not is_super_admin(user.id):
+    if not is_sole_master_owner(user.id):
         return
 
+    # បើ Master វាយក្នុង Group ➡️ លុបសារពី Group & ផ្ញើទៅ Private Chat
+    if chat.type in ["group", "supergroup"]:
+        try:
+            await update.effective_message.delete()
+        except Exception:
+            pass
+
+    text = (
+        "⚙️ **[ផ្ទាំងគ្រប់គ្រង MASTER BOT DASHBOARD]** ⚙️\n\n"
+        "👑 **សូមស្វាគមន៍ម្ចាស់ Bot (Sole Master Owner)**\n\n"
+        "👇 **សូមចុចលើឈ្មោះ Group ខាងក្រោម ដើម្បីគ្រប់គ្រង ឬបើក/បិទសិទ្ធិ៖**\n"
+    )
+    await context.bot.send_message(
+        chat_id=user.id,
+        text=text,
+        reply_markup=generate_master_dashboard_keyboard(),
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_to_user_id=None):
+    user = update.effective_user
+    if not is_sole_master_owner(user.id):
+        return
+
+    target_id = send_to_user_id if send_to_user_id else update.effective_chat.id
+
     if not CLIENTS_DB:
-        await update.message.reply_text("🗄️ មិនទាន់មានទិន្នន័យអតិថិជនក្នុងប្រព័ន្ធនៅឡើយទេ។")
+        await context.bot.send_message(chat_id=target_id, text="🗄️ មិនទាន់មានទិន្នន័យអតិថិជនក្នុងប្រព័ន្ធនៅឡើយទេ។", reply_markup=get_master_owner_keyboard())
         return
 
     report = "🗄️ **[ប្រព័ន្ធគ្រប់គ្រងអតិថិជន & ប្រវត្តិក្រុម - CLIENT CRM VAULT]** 🗄️\n"
@@ -960,16 +1113,18 @@ async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         report += f"   • 🛡️ **ស្ថិតិការពារជូន:** ☣️ `{threats}` មេរោគ | 🌊 `{spams}` Spams\n"
         report += "────────────────────\n"
 
-    await update.message.reply_text(report, parse_mode=ParseMode.MARKDOWN)
+    await context.bot.send_message(chat_id=target_id, text=report, reply_markup=get_master_owner_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 
-async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_to_user_id=None):
     user = update.effective_user
-    if not is_super_admin(user.id):
+    if not is_sole_master_owner(user.id):
         return
 
+    target_id = send_to_user_id if send_to_user_id else update.effective_chat.id
+
     if not AUDIT_LOGS:
-        await update.message.reply_text("📜 មិនទាន់មានកំណត់ត្រាប្រវត្តិហេតុការណ៍នៅឡើយទេ។")
+        await context.bot.send_message(chat_id=target_id, text="📜 មិនទាន់មានកំណត់ត្រាប្រវត្តិហេតុការណ៍នៅឡើយទេ។", reply_markup=get_master_owner_keyboard())
         return
 
     logs_text = "📜 **[ប្រវត្តិហេតុការណ៍ការពារចុងក្រោយ - SECURITY AUDIT LOGS]**\n"
@@ -984,70 +1139,107 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logs_text += f"   • ⚡ **ចំណាត់ការ:** {log['action']}\n"
         logs_text += "────────────────────\n"
 
-    await update.message.reply_text(logs_text, parse_mode=ParseMode.MARKDOWN)
+    await context.bot.send_message(chat_id=target_id, text=logs_text, reply_markup=get_master_owner_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 
-# ==================== MASTER SUPER ADMIN DASHBOARD ====================
+# ==================== INLINE CALLBACK ROUTER ====================
 
-def generate_admin_keyboard() -> InlineKeyboardMarkup:
-    keyboard = []
-    if not GROUPS_CONFIG:
-        keyboard.append([InlineKeyboardButton("❌ មិនទាន់មាន Group ណាភ្ជាប់នៅឡើយទេ", callback_data="none")])
-    else:
-        for chat_id, data in GROUPS_CONFIG.items():
-            title = data.get("title", f"Group {chat_id}")
-            is_auth = data.get("is_authorized", False)
-            is_en = data.get("is_enabled", False)
-
-            if is_auth and is_en:
-                status_emoji = "🟢 [បើក-ON]"
-            elif is_auth and not is_en:
-                status_emoji = "🟡 [ផ្អាក-PAUSE]"
-            else:
-                status_emoji = "🔴 [មិនទាន់ទិញសិទ្ធិ]"
-
-            btn_text = f"{status_emoji} {title[:18]}"
-            callback_data = f"toggle_{chat_id}"
-            keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
-
-    keyboard.append([InlineKeyboardButton("🔄 Refresh បញ្ជី Group", callback_data="refresh_groups")])
-    return InlineKeyboardMarkup(keyboard)
-
-
-async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    if not is_super_admin(user.id):
-        await update.message.reply_text(
-            f"⛔ **សុំទោស! មានតែ Master Super Admin ប៉ុណ្ណោះដែលអាចបើក Dashboard នេះបាន។**",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-
-    text = (
-        "⚙️ **[ផ្ទាំងគ្រប់គ្រង MASTER BOT DASHBOARD]** ⚙️\n\n"
-        "👑 **សូមស្វាគមន៍ Master Super Admin**\n\n"
-        "គ្រប់គ្រងផ្ដល់សិទ្ធិអាជ្ញាប័ណ្ណ និងបើក/បិទប្រព័ន្ធការពារតាម Group នីមួយៗ៖\n"
-    )
-    await update.message.reply_text(
-        text=text,
-        reply_markup=generate_admin_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
-    )
-
-
-async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user = query.from_user
     await query.answer()
 
-    if not is_super_admin(user.id):
-        await query.message.reply_text("⛔ អ្នកមិនមានសិទ្ធិប្រើប្រាស់ប៊ូតុងនេះទេ!")
+    if not is_sole_master_owner(user.id):
+        await query.message.reply_text("⛔ អ្នកមិនមែនជាម្ចាស់ Bot ទេ!")
         return
 
     data = query.data
 
-    if data == "refresh_groups":
-        await query.edit_message_reply_markup(reply_markup=generate_admin_keyboard())
+    if data == "dash_refresh":
+        await query.edit_message_reply_markup(reply_markup=generate_master_dashboard_keyboard())
+        return
+
+    if data == "dash_back":
+        text = (
+            "⚙️ **[ផ្ទាំងគ្រប់គ្រង MASTER BOT DASHBOARD]** ⚙️\n\n"
+            "👑 **សូមស្វាគមន៍ម្ចាស់ Bot (Sole Master Owner)**\n\n"
+            "👇 **សូមចុចលើឈ្មោះ Group ខាងក្រោម ដើម្បីគ្រប់គ្រង ឬបើក/បិទសិទ្ធិ៖**\n"
+        )
+        await query.edit_message_text(text=text, reply_markup=generate_master_dashboard_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    if data == "dash_clients":
+        await list_groups_command(update, context, send_to_user_id=user.id)
+        return
+
+    if data == "dash_logs":
+        await logs_command(update, context, send_to_user_id=user.id)
+        return
+
+    if data.startswith("manage_grp_"):
+        chat_id = data.replace("manage_grp_", "")
+        gdata = GROUPS_CONFIG.get(str(chat_id), {})
+        cdata = CLIENTS_DB.get(str(chat_id), {})
+
+        title = gdata.get("title", f"Group {chat_id}")
+        is_auth = gdata.get("is_authorized", False)
+        is_en = gdata.get("is_enabled", False)
+
+        status_kh = "🟢 ACTIVE (កំពុងការពារ)" if (is_auth and is_en) else ("🟡 PAUSED (បានផ្អាក)" if is_auth else "🔴 UNAUTHORIZED (មិនទាន់ទិញ)")
+        threats = gdata.get("threats_blocked_count", 0)
+        c_contact = cdata.get("customer_contact", {})
+
+        detail_text = (
+            f"🛠️ **[ផ្ទាំងគ្រប់គ្រងក្រុម - GROUP CONTROL PANEL]**\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 **ឈ្មោះក្រុម:** `{title}`\n"
+            f"🆔 **លេខ Group ID:** `{chat_id}`\n"
+            f"🔰 **ស្ថានភាពបច្ចុប្បន្ន:** {status_kh}\n"
+            f"👤 **អតិថិជន:** {c_contact.get('name', 'N/A')} ({c_contact.get('username', 'N/A')})\n"
+            f"☣️ **មេរោគដែលបានទប់ស្កាត់:** `{threats}` ករណី\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👉 **សូមជ្រើសរើសសកម្មភាពខាងក្រោម៖**"
+        )
+        await query.edit_message_text(text=detail_text, reply_markup=generate_group_detail_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    if data.startswith("set_on_"):
+        chat_id = data.replace("set_on_", "")
+        if chat_id in GROUPS_CONFIG:
+            GROUPS_CONFIG[chat_id]["is_authorized"] = True
+            GROUPS_CONFIG[chat_id]["is_enabled"] = True
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+            if chat_id in CLIENTS_DB:
+                CLIENTS_DB[chat_id]["license_status"] = "🟢 ACTIVE (បានទិញសិទ្ធិ)"
+                CLIENTS_DB[chat_id]["activated_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
+
+            await query.edit_message_reply_markup(reply_markup=generate_group_detail_keyboard(chat_id))
+            success_msg = "🟢 **Master Super Admin បានបើកដំណើរការប្រព័ន្ធការពារពេញលេញក្នុងក្រុមនេះរួចរាល់ហើយ!**"
+            await send_auto_delete_message(context, int(chat_id), success_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    if data.startswith("set_off_"):
+        chat_id = data.replace("set_off_", "")
+        if chat_id in GROUPS_CONFIG:
+            GROUPS_CONFIG[chat_id]["is_enabled"] = False
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+            if chat_id in CLIENTS_DB:
+                CLIENTS_DB[chat_id]["license_status"] = "🟡 PAUSED (បានផ្អាក)"
+                save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
+
+            await query.edit_message_reply_markup(reply_markup=generate_group_detail_keyboard(chat_id))
+            pause_msg = "🟡 **ប្រព័ន្ធការពារត្រូវបានផ្អាកបណ្ដោះអាសន្នដោយ Master Super Admin។**"
+            await send_auto_delete_message(context, int(chat_id), pause_msg, delay=15, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    if data.startswith("set_del_"):
+        chat_id = data.replace("set_del_", "")
+        if chat_id in GROUPS_CONFIG:
+            del GROUPS_CONFIG[chat_id]
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+        text = "✅ **បានលុប Group នេះចេញពីបញ្ជីគ្រប់គ្រងរួចរាល់!**"
+        await query.edit_message_text(text=text, reply_markup=generate_master_dashboard_keyboard(), parse_mode=ParseMode.MARKDOWN)
         return
 
     if data.startswith("approve_"):
@@ -1056,8 +1248,6 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
             GROUPS_CONFIG[chat_id]["is_authorized"] = True
             GROUPS_CONFIG[chat_id]["is_enabled"] = True
             save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
-
-            # Sync Client DB
             if chat_id in CLIENTS_DB:
                 CLIENTS_DB[chat_id]["license_status"] = "🟢 ACTIVE (បានទិញសិទ្ធិ)"
                 CLIENTS_DB[chat_id]["activated_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1087,7 +1277,6 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
             GROUPS_CONFIG[chat_id]["is_authorized"] = False
             GROUPS_CONFIG[chat_id]["is_enabled"] = False
             save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
-
             if chat_id in CLIENTS_DB:
                 CLIENTS_DB[chat_id]["license_status"] = "🔴 UNAUTHORIZED (មិនទាន់ទិញ)"
                 save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
@@ -1101,27 +1290,6 @@ async def admin_button_callback(update: Update, context: ContextTypes.DEFAULT_TY
             )
         return
 
-    if data.startswith("toggle_"):
-        chat_id = data.replace("toggle_", "")
-        if chat_id in GROUPS_CONFIG:
-            current_auth = GROUPS_CONFIG[chat_id].get("is_authorized", False)
-            current_en = GROUPS_CONFIG[chat_id].get("is_enabled", False)
-
-            if not current_auth:
-                GROUPS_CONFIG[chat_id]["is_authorized"] = True
-                GROUPS_CONFIG[chat_id]["is_enabled"] = True
-                if chat_id in CLIENTS_DB:
-                    CLIENTS_DB[chat_id]["license_status"] = "🟢 ACTIVE (បានទិញសិទ្ធិ)"
-                    CLIENTS_DB[chat_id]["activated_date"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            elif current_auth and current_en:
-                GROUPS_CONFIG[chat_id]["is_enabled"] = False
-            else:
-                GROUPS_CONFIG[chat_id]["is_enabled"] = True
-
-            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
-            save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
-            await query.edit_message_reply_markup(reply_markup=generate_admin_keyboard())
-
 
 # ==================== MAIN EXECUTION ====================
 
@@ -1134,7 +1302,7 @@ def main():
         print("Error: TELEGRAM_BOT_TOKEN is missing!")
         return
 
-    print("[*] Client Vault Security Bot starting with Master Super Admin (240224709)...")
+    print("[*] Stealth Master Security Bot starting with Owner (240224709)...")
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     # Commands
@@ -1143,14 +1311,13 @@ def main():
     app.add_handler(CommandHandler("check", status_command))
     app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(CommandHandler("admin", admin_command))
+    app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("groups", list_groups_command))
     app.add_handler(CommandHandler("clients", list_groups_command))
     app.add_handler(CommandHandler("logs", logs_command))
-    app.add_handler(CommandHandler("protect_on", protect_on_command))
-    app.add_handler(CommandHandler("protect_off", protect_off_command))
 
-    # Master Admin Inline Callback
-    app.add_handler(CallbackQueryHandler(admin_button_callback))
+    # Master Interactive Inline Callback Router
+    app.add_handler(CallbackQueryHandler(master_callback_router))
 
     # Catch when Bot is added to new groups
     app.add_handler(ChatMemberHandler(handle_bot_added_to_group, ChatMemberHandler.MY_CHAT_MEMBER))
@@ -1165,10 +1332,10 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_regular_messages))
     app.add_handler(MessageHandler(filters.Sticker.ALL | filters.ANIMATION, handle_regular_messages))
 
-    # Bottom Menu Keyboard Button Filter
-    app.add_handler(MessageHandler(filters.Regex(r"^(🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID Group|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|📋 បញ្ជីឈ្មោះក្រុម & សេវាកម្ម|📜 ប្រវត្តិការពារ \(Logs\))$"), handle_regular_messages))
+    # Stealth Menu Keyboard Router
+    app.add_handler(MessageHandler(filters.Regex(r"^(⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|📋 បញ្ជីអតិថិជន & Group|📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន|📜 ប្រវត្តិការពារ \(Logs\)|🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID|🆔 មើលលេខ ID Group|❓ ការណែនាំ & ជំនួយ)$"), handle_regular_messages))
 
-    print("[OK] Client Vault Security Bot is fully active!")
+    print("[OK] Stealth Master Security Bot is fully active!")
     app.run_polling()
 
 

@@ -85,9 +85,9 @@ OFFICIAL_CHANNEL_LINK = "https://t.me/sornsecurityrobot"
 PUNISHMENT_MODE = os.getenv("PUNISHMENT_MODE", "MUTE").upper().strip()
 MUTE_DURATION_HOURS = int(os.getenv("MUTE_DURATION_HOURS", "24"))
 
-# Settings សម្រាប់ភាពស្អាតក្នុង Group (កំណត់លុបត្រឹម ៣០ វិនាទី)
+# Settings សម្រាប់ភាពស្អាតក្នុង Chat និង Group (កំណត់លុបត្រឹម ១៥ វិនាទី)
 AUTO_DELETE_SERVICE_MSGS = os.getenv("AUTO_DELETE_SERVICE_MSGS", "true").lower() == "true"
-BOT_MSG_DELETE_SECONDS = int(os.getenv("BOT_MSG_DELETE_SECONDS", "30"))
+BOT_MSG_DELETE_SECONDS = int(os.getenv("BOT_MSG_DELETE_SECONDS", "15"))
 ANTI_FLOOD_ENABLED = os.getenv("ANTI_FLOOD_ENABLED", "true").lower() == "true"
 FLOOD_MAX_MSGS = int(os.getenv("FLOOD_MAX_MSGS", "5"))
 FLOOD_WINDOW_SECONDS = int(os.getenv("FLOOD_WINDOW_SECONDS", "3"))
@@ -107,6 +107,7 @@ logger = logging.getLogger("MalwareGuardBot")
 SCAN_CACHE = {}
 FLOOD_TRACKER = {}
 PENDING_BOT_DELETIONS = []  # [(chat_id, message_id, expire_timestamp), ...]
+ACTIVE_DELETION_TASKS = {}  # (chat_id, message_id) -> asyncio.Task
 WAITING_FOR_GROUP_ID = {}  # user_id -> True (ពេលកំពុងរង់ចាំ Master វាយលេខ Group ID)
 
 
@@ -392,25 +393,37 @@ async def send_clean_command_response(
     text: str,
     reply_markup=None,
     parse_mode=ParseMode.MARKDOWN,
-    user_message=None
+    user_message=None,
+    auto_delete_seconds: int = BOT_MSG_DELETE_SECONDS
 ):
     """
     គ្រប់គ្រងការឆ្លើយតបយ៉ាងស្អាតបាត ១០០%៖
-    ១. លុបសារឆ្លើយតបចាស់ៗរបស់ Bot ក្នុង Chat នេះ (Delete previous bot responses)
-    ២. ផ្ញើសារឆ្លើយតបថ្មី និងកត់ត្រា Message ID របស់វា
-    ៣. លុបសារបញ្ជា ឬប៊ូតុងដែល User បានចុចភ្លាមៗ (Delete incoming user command)
+    ១. លុបសារឆ្លើយតបចាស់ៗរបស់ Bot ក្នុង Chat នេះភ្លាមៗ (Delete previous bot responses immediately)
+    ២. លុបសារបញ្ជា ឬប៊ូតុងដែល User បានចុចភ្លាមៗ (Delete incoming user command immediately)
+    ៣. ផ្ញើសារឆ្លើយតបថ្មី និងកត់ត្រា Message ID របស់វា
+    ៤. កំណត់ពេលលុបចម្លើយបតស្វ័យប្រវត្តិក្នងរយៈពេល ១៥ វិនាទី បើគ្មានពាក្យបញ្ជាថ្មីទេ (Auto-delete in 15s if no new command)
     """
-    # ១. លុបសារឆ្លើយតបចាស់ៗរបស់ Bot
+    # ១. លុបសារឆ្លើយតបចាស់ៗរបស់ Bot ភ្លាមៗ
     if chat_id in LAST_BOT_RESPONSES:
         old_ids = list(LAST_BOT_RESPONSES[chat_id])
         for mid in old_ids:
+            task = ACTIVE_DELETION_TASKS.pop((chat_id, mid), None)
+            if task and not task.done():
+                task.cancel()
             try:
                 await context.bot.delete_message(chat_id=chat_id, message_id=mid)
             except Exception:
                 pass
         LAST_BOT_RESPONSES[chat_id] = []
 
-    # ២. ផ្ញើសារឆ្លើយតបថ្មី
+    # ២. លុបពាក្យបញ្ជារបស់ User ភ្លាមៗ (ប្រសិនបើមាន)
+    if user_message:
+        try:
+            await user_message.delete()
+        except Exception:
+            pass
+
+    # ៣. ផ្ញើសារឆ្លើយតបថ្មី
     sent_msg = None
     try:
         sent_msg = await context.bot.send_message(
@@ -422,22 +435,31 @@ async def send_clean_command_response(
     except Exception as err:
         logger.error(f"Error in send_clean_command_response send_message: {err}")
 
-    # ៣. កត់ត្រាទុកសម្រាប់លុបពេលមានពាក្យបញ្ជាថ្មី
+    # ៤. កត់ត្រាទុកសម្រាប់លុបពេលមានពាក្យបញ្ជាថ្មី និងកំណត់លុបស្វ័យប្រវត្តិក្នង ១៥ វិនាទី បើគ្មានបញ្ជាថ្មី
     if sent_msg:
-        LAST_BOT_RESPONSES[chat_id] = [sent_msg.message_id]
+        mid = sent_msg.message_id
+        LAST_BOT_RESPONSES[chat_id] = [mid]
+        if auto_delete_seconds and auto_delete_seconds > 0:
+            async def _auto_clean_worker(bot, c_id, m_id, delay):
+                try:
+                    await asyncio.sleep(delay)
+                    await bot.delete_message(chat_id=c_id, message_id=m_id)
+                except Exception:
+                    pass
+                finally:
+                    ACTIVE_DELETION_TASKS.pop((c_id, m_id), None)
+                    if c_id in LAST_BOT_RESPONSES and m_id in LAST_BOT_RESPONSES[c_id]:
+                        LAST_BOT_RESPONSES[c_id].remove(m_id)
 
-    # ៤. លុបពាក្យបញ្ជារបស់ User ភ្លាមៗ (ប្រសិនបើមាន)
-    if user_message:
-        try:
-            await user_message.delete()
-        except Exception:
-            pass
+            t = asyncio.create_task(_auto_clean_worker(context.bot, chat_id, mid, auto_delete_seconds))
+            ACTIVE_DELETION_TASKS[(chat_id, mid)] = t
+            PENDING_BOT_DELETIONS.append((chat_id, mid, time.time() + auto_delete_seconds))
 
     return sent_msg
 
 
 async def bot_message_sweeper_loop(application):
-    logger.info("Bot Message Sweeper Watchdog started (Guaranteed 30-second clean)...")
+    logger.info("Bot Message Sweeper Watchdog started (Guaranteed 15-second clean)...")
     while True:
         try:
             now = time.time()
@@ -485,7 +507,7 @@ async def daily_reminder_loop(app):
                             f"👉 **ឆានែលផ្លូវការ៖** [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
                             "👉 **សូមទាក់ទង Master Super Admin ដើម្បីទិញអាជ្ញាប័ណ្ណប្រើប្រាស់ពេញលេញ!**\n"
                             "━━━━━━━━━━━━━━━━━━━━\n"
-                            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៣០ វិនាទី)*"
+                            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
                         )
                         await send_auto_delete_message(
                             app,
@@ -567,7 +589,7 @@ async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAUL
             f"🆔 **លេខ Group ID របស់អ្នក៖** `{chat.id}`\n\n"
             f"👉 ឆានែលផ្លូវការ៖ [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
             "👉 សូមទាក់ទង **Master Super Admin** ដើម្បីទិញសិទ្ធិ និងបើកដំណើរការប្រព័ន្ធការពារពេញលេញ!\n"
-            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ៣០ វិនាទី)*"
+            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ១៥ វិនាទី)*"
         )
         await send_auto_delete_message(context, chat.id, pending_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
 
@@ -877,7 +899,7 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
             f"⚡ **ចំណាត់ការ:** សារត្រូវបានលុបភ្លាមៗ | {action_taken}\n"
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"💡 **ការណែនាំសុវត្ថិភាព:** សូមប្រុងប្រយ័ត្នខ្ពស់ចំពោះហ្វាល់ដែលបង្កប់កន្ទុយ `.apk` ឬ `.exe` ព្រោះវាអាចជា Banking Trojan លួចគណនីធនាគាររបស់អ្នក!\n\n"
-            f"*(សារនេះនឹងរលាយបាត់ទៅវិញស្វ័យប្រវត្តិក្នងរយៈពេល ៣០ វិនាទី)*"
+            f"*(សារនេះនឹងរលាយបាត់ទៅវិញស្វ័យប្រវត្តិក្នងរយៈពេល ១៥ វិនាទី)*"
         )
 
         await send_auto_delete_message(
@@ -924,7 +946,7 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
                     f"🔬 **ពិន្ទុគ្រោះថ្នាក់:** {vt_result['malicious_count']} Security Engines ចាត់ទុកជាមេរោគ!\n"
                     f"🧬 **SHA-256:** `{vt_result['sha256']}`\n"
                     f"⚡ **ចំណាត់ការ:** សារត្រូវបានលុប | {action_taken}\n\n"
-                    f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៣០ វិនាទី)*"
+                    f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
                 )
                 await send_auto_delete_message(
                     context,
@@ -953,7 +975,7 @@ async def broadcast_to_channel_command(update: Update, context: ContextTypes.DEF
         "• 🛑 ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (`.jpg.apk`, `.pdf.apk`)\n"
         "• 🛑 ទប់ស្កាត់មេរោគកុំព្យូទ័រ `.exe`, `.scr`, `.bat`\n"
         "• 🌊 ប្រព័ន្ធ Anti-Flood Spam & Clean Service Join/Leave\n"
-        "• ⏱️ ប្រព័ន្ធ 30s Auto-Clean Message មិនរំខានការងារ\n"
+        "• ⏱️ ប្រព័ន្ធ 15s Auto-Clean Message មិនរំខានការងារ\n"
         "• 🗄️ ប្រព័ន្ធកត់ត្រាទិន្នន័យអតិថិជន និងរបាយការណ៍ Security Logs\n\n"
         "👑 **កញ្ចប់សេវាកម្មពេញនិយម៖**\n"
         "• 🥉 កញ្ចប់ប្រចាំខែ (30 ថ្ងៃ)\n"
@@ -1177,7 +1199,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "🛡️ **មុខងារសម្រាប់ Group Admin៖**\n"
                 "👉 `[ 🛡️ ឆែកស្ថានភាព Bot ]` : ឆែកស្ថានភាពការពារក្នុង Group\n"
                 "👉 `[ 🆔 មើលលេខ ID Group ]` : មើលលេខសម្គាល់ Group ID\n\n"
-                "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ៣០ វិនាទី)*"
+                "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ១៥ វិនាទី)*"
             )
             await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_client_admin_keyboard(), parse_mode=ParseMode.MARKDOWN)
         return
@@ -1238,7 +1260,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_
         f"• ចុចប៊ូតុង `[ 📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel ]` ដើម្បីផ្ញើសារប្រកាសលក់សេវាកម្មទៅកាន់ Channel `{OFFICIAL_CHANNEL_USERNAME}` របស់អ្នកភ្លាមៗ\n\n"
         "🔒 **៥. ប្រព័ន្ធ Stealth Privacy Mode៖**\n"
         "• ទោះបីជាអ្នកនៅក្នុង Group ណាក៏ដោយ ក៏ប៊ូតុង និងសារបញ្ជារបស់អ្នក **មិនបង្ហាញឱ្យសមាជិកក្នុង Group ឃើញឡើយ** (Bot បញ្ជូនមក Private Chat នេះដោយស្វ័យប្រវត្តិ)!\n\n"
-        "⏱️ **៦. កំណត់ពេលលុបសារស្វ័យប្រវត្តិ៖** ៣០ វិនាទី (មានប្រព័ន្ធ Sweeper Watchdog សម្អាតជាប្រចាំ)\n"
+        "⏱️ **៦. កំណត់ពេលលុបសារស្វ័យប្រវត្តិ៖** ១៥ វិនាទី (មានប្រព័ន្ធ Sweeper Watchdog សម្អាតជាប្រចាំ)\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
     target_id = send_to_user_id if send_to_user_id else update.effective_chat.id
@@ -1279,7 +1301,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "━━━━━━━━━━━━━━━━━━━━\n"
             f"👉 **ឆានែលផ្លូវការ៖** [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
             f"💡 **ការណែនាំ៖** សូមចម្លងលេខ Group ID (`{chat.id}`) នេះ ផ្ញើទៅកាន់ **Master Super Admin** ដើម្បីទិញអាជ្ញាប័ណ្ណ និងបើកដំណើរការប្រព័ន្ធការពារពេញលេញ!\n\n"
-            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៣០ វិនាទី)*"
+            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
         )
         if chat.type in ["group", "supergroup"]:
             await send_auto_delete_message(context, chat.id, unauth_text, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
@@ -1311,10 +1333,10 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⏳ **រយៈពេលនៅសល់:** {rem_str}\n"
         f"⚡ **ប្រព័ន្ធស្កេនមេរោគ (Local):** ✅ សកម្ម (.apk, .exe, .scr, .bat, .sh, .jpg.apk)\n"
         f"🌐 **VirusTotal Cloud Scan:** {vt_status}\n"
-        f"⏱️ **Auto-Delete Timer:** ✅ ៣០ វិនាទី (Clean Room Sweeper)\n"
+        f"⏱️ **Auto-Delete Timer:** ✅ ១៥ វិនាទី (Clean Room Sweeper)\n"
         f"⚖️ **វិធានការលើអ្នកល្មើស:** លុបសារមេរោគ + {PUNISHMENT_MODE} {MUTE_DURATION_HOURS} ម៉ោង\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 *(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៣០ វិនាទី)*"
+        f"💡 *(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
     )
 
     if chat.type in ["group", "supergroup"]:
@@ -1357,7 +1379,7 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔐 **ស្ថានភាពសេវាកម្ម:** {license_status}\n\n"
             f"👉 ឆានែលផ្លូវការ៖ [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
             f"💡 *(សូមយកលេខ Group ID `{chat.id}` នេះ ផ្ញើទៅកាន់ Master Admin ដើម្បីទិញ ឬបើកសិទ្ធិប្រើប្រាស់)*\n\n"
-            f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ៣០ វិនាទី)*"
+            f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ១៥ វិនាទី)*"
         )
         kb = get_client_admin_keyboard() if not is_owner else None
         await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
@@ -1806,7 +1828,7 @@ async def process_manual_add_group(context: ContextTypes.DEFAULT_TYPE, user_id: 
             "🛒 កញ្ចប់៖ **Trial 7 Days (សាកល្បង ៧ ថ្ងៃ)**\n"
             "✅ ស្កេនមេរោគ (.apk, .exe, .scr, .bat, .sh)\n"
             "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (.jpg.apk, .pdf.apk)\n"
-            "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 30s"
+            "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 15s"
         )
         await send_auto_delete_message(context, final_chat_id, success_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
     except Exception:
@@ -1900,7 +1922,7 @@ async def sync_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "🛒 កញ្ចប់៖ **Trial 7 Days (សាកល្បង ៧ ថ្ងៃ)**\n"
                 "✅ ស្កេនមេរោគ (.apk, .exe, .scr, .bat, .sh)\n"
                 "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (.jpg.apk, .pdf.apk)\n"
-                "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 30s"
+                "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 15s"
             )
             await send_auto_delete_message(context, chat.id, welcome_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
         except Exception:
@@ -1917,7 +1939,27 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     if query.message:
-        LAST_BOT_RESPONSES[query.message.chat_id] = [query.message.message_id]
+        cid = query.message.chat_id
+        mid = query.message.message_id
+        LAST_BOT_RESPONSES[cid] = [mid]
+        old_task = ACTIVE_DELETION_TASKS.pop((cid, mid), None)
+        if old_task and not old_task.done():
+            old_task.cancel()
+
+        async def _auto_clean_cb(bot, c_id, m_id, delay):
+            try:
+                await asyncio.sleep(delay)
+                await bot.delete_message(chat_id=c_id, message_id=m_id)
+            except Exception:
+                pass
+            finally:
+                ACTIVE_DELETION_TASKS.pop((c_id, m_id), None)
+                if c_id in LAST_BOT_RESPONSES and m_id in LAST_BOT_RESPONSES[c_id]:
+                    LAST_BOT_RESPONSES[c_id].remove(m_id)
+
+        t = asyncio.create_task(_auto_clean_cb(context.bot, cid, mid, BOT_MSG_DELETE_SECONDS))
+        ACTIVE_DELETION_TASKS[(cid, mid)] = t
+        PENDING_BOT_DELETIONS.append((cid, mid, time.time() + BOT_MSG_DELETE_SECONDS))
 
     if not is_sole_master_owner(user.id):
         await query.message.reply_text("⛔ អ្នកមិនមែនជាម្ចាស់ Bot ទេ!")
@@ -2123,7 +2165,7 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
             "🛡️ **Master Super Admin បានអនុញ្ញាតឱ្យក្រុមនេះប្រើប្រាស់ប្រព័ន្ធការពារដោយឥតគិតថ្លៃរយៈពេល ៧ ថ្ងៃ!**\n"
             "✅ ស្កេនមេរោគ (.apk, .exe, .scr, .bat, .sh)\n"
             "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (.jpg.apk, .pdf.apk)\n"
-            "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 30s"
+            "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 15s"
         )
         await send_auto_delete_message(context, int(chat_id), success_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
         return

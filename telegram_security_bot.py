@@ -1846,6 +1846,7 @@ async def post_init(application):
 
 def main():
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
+        logger.error("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN is missing! Please set TELEGRAM_BOT_TOKEN in Render Environment variables.")
         print("Error: TELEGRAM_BOT_TOKEN is missing!")
         return
 
@@ -1885,7 +1886,11 @@ def main():
     app.add_handler(MessageHandler(filters.Regex(r"^(⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|📋 បញ្ជីអតិថិជន & Group|📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន|📜 ប្រវត្តិការពារ & ការទិញបត|📜 ប្រវត្តិការពារ \(Logs\)|📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel|🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID|🆔 មើលលេខ ID Group|❓ ការណែនាំ & ជំនួយ|🚀 ចាប់ផ្ដើម Bot ឡើងវិញ \(/start\))$"), handle_regular_messages))
 
     print("[OK] Full Commercial CRM & Marketing Bot is fully active!")
-    app.run_polling()
+    try:
+        app.run_polling(drop_pending_updates=True)
+    except Exception as e:
+        logger.error(f"Fatal polling exception: {e}", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":

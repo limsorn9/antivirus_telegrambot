@@ -457,18 +457,23 @@ async def notify_master_admin_new_group(context: ContextTypes.DEFAULT_TYPE, chat
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"👥 **ឈ្មោះក្រុម:** `{chat.title or 'Unknown Group'}`\n"
         f"🆔 **លេខ Group ID:** `{chat.id}`\n"
-        f"👤 **អតិថិជន:** {added_name} ({added_uname})\n"
+        f"👤 **អតិថិជន/អ្នកទាញចូល:** {added_name} ({added_uname})\n"
         f"🔢 **Customer User ID:** `{added_id}`\n"
         f"📅 **កាលបរិច្ឆេទ:** `{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "👉 **តើអ្នកយល់ព្រមបើកសិទ្ធិឱ្យ Bot ការពារក្នុងក្រុមនេះដែរឬទេ?**\n"
-        "*(បើបដិសេធ Bot នឹងនៅស្ងៀមមិនការពារទេ ហើយលោតសារដាស់តឿនឱ្យទិញសិទ្ធិ ២ ដងក្នុង ១ ថ្ងៃ)*"
+        "• បើចុច **[ 🟢 អនុញ្ញាត ]** ➡️ ក្រុមនេះនឹងទទួលបានសិទ្ធិប្រើប្រាស់ **៧ ថ្ងៃ (7-Day Trial)** ដោយស្វ័យប្រវត្តិ!\n"
+        "• បើចុច **[ 🚪 ចាកចេញ ]** ➡️ Bot នឹងចាកចេញពីក្រុមនោះភ្លាមៗ\n"
+        "• បើចុច **[ 🔴 បដិសេធ ]** ➡️ រក្សាទុកជាមិនទាន់ទិញ (Bot នៅស្ងៀមមិនការពារ)"
     )
 
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🟢 អនុញ្ញាត (Approve & Protect)", callback_data=f"approve_{chat.id}"),
-            InlineKeyboardButton("🔴 បដិសេធ (Keep Unauthorized)", callback_data=f"reject_{chat.id}")
+            InlineKeyboardButton("🟢 អនុញ្ញាតប្រើ ៧ ថ្ងៃ (Approve 7 Days)", callback_data=f"approve_{chat.id}"),
+            InlineKeyboardButton("🔴 បដិសេធ (Keep Off)", callback_data=f"reject_{chat.id}")
+        ],
+        [
+            InlineKeyboardButton("🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុមភ្លាម", callback_data=f"leave_{chat.id}")
         ]
     ])
 
@@ -1267,16 +1272,20 @@ def generate_group_detail_keyboard(chat_id: str) -> InlineKeyboardMarkup:
 
     keyboard = [
         [
-            InlineKeyboardButton("➕ បន្ថែម 30 ថ្ងៃ (+30D)", callback_data=f"add_30_{chat_id}"),
-            InlineKeyboardButton("➕ បន្ថែម 90 ថ្ងៃ (+90D)", callback_data=f"add_90_{chat_id}")
+            InlineKeyboardButton("🎁 សាកល្បង ៧ ថ្ងៃ (+7D)", callback_data=f"add_7_{chat_id}"),
+            InlineKeyboardButton("➕ បន្ថែម 30 ថ្ងៃ (+30D)", callback_data=f"add_30_{chat_id}")
         ],
         [
-            InlineKeyboardButton("👑 ពេញមួយជីវិត (Lifetime)", callback_data=f"set_life_{chat_id}"),
-            InlineKeyboardButton("🔴 ដកសិទ្ធិ (Revoke)", callback_data=f"revoke_{chat_id}")
+            InlineKeyboardButton("➕ បន្ថែម 90 ថ្ងៃ (+90D)", callback_data=f"add_90_{chat_id}"),
+            InlineKeyboardButton("👑 ពេញមួយជីវិត (Lifetime)", callback_data=f"set_life_{chat_id}")
         ],
         [
             InlineKeyboardButton("🟢 បើក (ON)" if not is_en else "🟡 ផ្អាក (PAUSE)", callback_data=f"toggle_en_{chat_id}"),
-            InlineKeyboardButton("🗑️ លុប Group", callback_data=f"set_del_{chat_id}")
+            InlineKeyboardButton("🔴 ដកសិទ្ធិ (Revoke)", callback_data=f"revoke_{chat_id}")
+        ],
+        [
+            InlineKeyboardButton("🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម", callback_data=f"leave_{chat_id}"),
+            InlineKeyboardButton("🗑️ លុប Group ចេញ", callback_data=f"set_del_{chat_id}")
         ],
         [
             InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")
@@ -1403,6 +1412,65 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_
     await context.bot.send_message(chat_id=target_id, text=logs_text, reply_markup=get_master_owner_keyboard(), parse_mode=ParseMode.MARKDOWN)
 
 
+async def leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Command សម្រាប់ Master Owner បញ្ជាឱ្យ Bot ចាកចេញពី Group
+    • បើវាយ /leave ក្នុង Group ណាមួយ ➡️ Bot នឹងចាកចេញពី Group នោះភ្លាម
+    • បើវាយ /leave <group_id> ក្នុង Private Chat ➡️ Bot នឹងចាកចេញពី Group ID នោះ
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+    if not is_sole_master_owner(user.id):
+        return
+
+    args = context.args
+    target_chat_id = None
+
+    if chat.type in ["group", "supergroup"]:
+        target_chat_id = str(chat.id)
+    elif args:
+        target_chat_id = args[0].strip()
+
+    if not target_chat_id:
+        await update.message.reply_text(
+            "ℹ️ **របៀបប្រើប្រាស់៖** `/leave <group_id>`\n"
+            "ឧទាហរណ៍៖ `/leave -1002458931204`\n\n"
+            "💡 ឬលោកអ្នកគ្រាន់តែវាយពាក្យ `/leave` ផ្ទាល់នៅក្នុង Group ណាមួយក៏បាន ឬចូលទៅកាន់ `/admin` ➡️ ចុចលើឈ្មោះក្រុម ➡️ ចុចប៊ូតុង **[ 🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម ]**!",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    group_title = GROUPS_CONFIG.get(target_chat_id, {}).get("title", f"Group {target_chat_id}")
+    leave_status = ""
+    try:
+        if chat.type in ["group", "supergroup"]:
+            try:
+                await update.effective_message.delete()
+            except Exception:
+                pass
+            await context.bot.send_message(
+                chat_id=int(target_chat_id),
+                text="👋 **[លាហើយ!]** Bot ត្រូវបានបញ្ជាដោយម្ចាស់ (Master Owner) ឱ្យចាកចេញពីក្រុមនេះ។ សូមអរគុណ!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        await context.bot.leave_chat(chat_id=int(target_chat_id))
+        leave_status = f"✅ **បានបញ្ជាឱ្យ Bot ចាកចេញពីក្រុម {group_title} (`{target_chat_id}`) ដោយជោគជ័យ!**"
+    except Exception as e:
+        leave_status = f"⚠️ មិនអាចចាកចេញពីក្រុម `{target_chat_id}` បានទេ៖ {e}"
+
+    if target_chat_id in GROUPS_CONFIG:
+        GROUPS_CONFIG[target_chat_id]["is_authorized"] = False
+        GROUPS_CONFIG[target_chat_id]["is_enabled"] = False
+        GROUPS_CONFIG[target_chat_id]["plan_type"] = "🚪 Bot បានចាកចេញពីក្រុម"
+        save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
+    if target_chat_id in CLIENTS_DB:
+        CLIENTS_DB[target_chat_id]["license_status"] = "🚪 LEFT (Bot ចាកចេញ)"
+        save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
+
+    await context.bot.send_message(chat_id=user.id, text=leave_status, parse_mode=ParseMode.MARKDOWN)
+
+
 # ==================== INLINE CALLBACK ROUTER ====================
 
 async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1490,7 +1558,15 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text(text=detail_text, reply_markup=generate_group_detail_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
         return
 
-    # 3. Actions: Add 30 Days / Add 90 Days / Set Lifetime / Revoke / Toggle / Delete
+    # 3. Actions: Add 7 Days / Add 30 Days / Add 90 Days / Set Lifetime / Revoke / Toggle / Delete / Leave
+    if data.startswith("add_7_"):
+        chat_id = data.replace("add_7_", "")
+        chat_obj = type('obj', (object,), {'id': int(chat_id), 'title': GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")})
+        sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=7, is_lifetime=False)
+        await query.answer("🎁 បានបន្ថែមរយៈពេលសាកល្បង ៧ ថ្ងៃជោគជ័យ!", show_alert=True)
+        await master_callback_router(update, context)
+        return
+
     if data.startswith("add_30_"):
         chat_id = data.replace("add_30_", "")
         chat_obj = type('obj', (object,), {'id': int(chat_id), 'title': GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")})
@@ -1549,24 +1625,53 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text(text=text, reply_markup=generate_master_dashboard_keyboard(), parse_mode=ParseMode.MARKDOWN)
         return
 
-    # 4. Instant New Group Approval
+    if data.startswith("leave_"):
+        chat_id = data.replace("leave_", "")
+        group_title = GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")
+        leave_status = ""
+        try:
+            await context.bot.leave_chat(chat_id=int(chat_id))
+            leave_status = "✅ Bot បានចាកចេញពីក្រុម Telegram នោះដោយជោគជ័យ!"
+        except Exception as e:
+            leave_status = f"⚠️ មិនអាចចាកចេញពីក្រុមបានទេ៖ {e}"
+
+        if str(chat_id) in GROUPS_CONFIG:
+            GROUPS_CONFIG[str(chat_id)]["is_authorized"] = False
+            GROUPS_CONFIG[str(chat_id)]["is_enabled"] = False
+            GROUPS_CONFIG[str(chat_id)]["plan_type"] = "🚪 Bot បានចាកចេញពីក្រុម"
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
+        if str(chat_id) in CLIENTS_DB:
+            CLIENTS_DB[str(chat_id)]["license_status"] = "🚪 LEFT (Bot ចាកចេញ)"
+            save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
+
+        await query.edit_message_text(
+            f"🚪 **[បានបញ្ជាឱ្យ Bot ចាកចេញពីក្រុម]**\n\n"
+            f"👥 ក្រុម៖ **{group_title}** (`{chat_id}`)\n"
+            f"⚡ ស្ថានភាព៖ {leave_status}",
+            reply_markup=generate_master_dashboard_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    # 4. Instant New Group Approval (Automatic 7-Day Free Trial)
     if data.startswith("approve_"):
         chat_id = data.replace("approve_", "")
         chat_obj = type('obj', (object,), {'id': int(chat_id), 'title': GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")})
-        sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=30, is_lifetime=False)
+        sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=7, is_lifetime=False)
 
         group_title = GROUPS_CONFIG.get(str(chat_id), {}).get("title", chat_id)
         await query.edit_message_text(
-            f"✅ **[បានអនុញ្ញាតជោគជ័យ]**\n\n"
+            f"✅ **[បានអនុញ្ញាតឱ្យសាកល្បង ៧ ថ្ងៃ ជោគជ័យ]**\n\n"
             f"👥 ក្រុម៖ **{group_title}** (`{chat_id}`)\n"
-            f"🛒 កញ្ចប់៖ **Standard 30 Days** (រយៈពេល ៣០ ថ្ងៃ)\n"
-            f"🛡️ ស្ថានភាព៖ **បានបើកដំណើរការសិទ្ធិការពារពេញលេញ ១០០% រួចរាល់!**",
+            f"🛒 កញ្ចប់៖ **Trial 7 Days (សាកល្បង ៧ ថ្ងៃ)**\n"
+            f"🛡️ ស្ថានភាព៖ **បានបើកដំណើរការសិទ្ធិការពារពេញលេញ ១០០% រយៈពេល ៧ ថ្ងៃ!**",
             parse_mode=ParseMode.MARKDOWN
         )
 
         success_msg = (
-            "🎉 **[សេវាកម្មត្រូវបានអនុញ្ញាតជាផ្លូវការ]** 🎉\n\n"
-            "🛡️ **Master Super Admin បានអនុញ្ញាតឱ្យបើកដំណើរការប្រព័ន្ធការពារពេញលេញក្នុងក្រុមនេះរួចរាល់ហើយ!**\n"
+            "🎉 **[សេវាកម្មត្រូវបានអនុញ្ញាតឱ្យសាកល្បង ៧ ថ្ងៃ]** 🎉\n\n"
+            "🛡️ **Master Super Admin បានអនុញ្ញាតឱ្យក្រុមនេះប្រើប្រាស់ប្រព័ន្ធការពារដោយឥតគិតថ្លៃរយៈពេល ៧ ថ្ងៃ!**\n"
             "✅ ស្កេនមេរោគ (.apk, .exe, .scr, .bat, .sh)\n"
             "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (.jpg.apk, .pdf.apk)\n"
             "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 30s"
@@ -1649,6 +1754,7 @@ async def post_init(application):
             BotCommand("logs", "📜 ប្រវត្តិការពារ & ការទិញបត"),
             BotCommand("broadcast", "📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
             BotCommand("status", "🛡️ ឆែកស្ថានភាព Bot"),
+            BotCommand("leave", "🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម"),
             BotCommand("myid", "🆔 មើលលេខ ID"),
             BotCommand("help", "❓ ការណែនាំ & ជំនួយ")
         ]
@@ -1680,6 +1786,7 @@ def main():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("check", status_command))
+    app.add_handler(CommandHandler("leave", leave_command))
     app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("help", help_command))

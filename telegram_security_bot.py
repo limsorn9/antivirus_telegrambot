@@ -50,6 +50,7 @@ from telegram import (
     ChatMemberUpdated,
     ReplyKeyboardMarkup,
     KeyboardButton,
+    KeyboardButtonRequestChat,
     ReplyKeyboardRemove,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -580,18 +581,21 @@ def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [
             KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
-            KeyboardButton("➕ បន្ថែម Group តាម ID")
+            KeyboardButton("👥 ចុចរើសក្រុម (Select Group)", request_chat=KeyboardButtonRequestChat(request_id=101, chat_is_channel=False))
         ],
         [
-            KeyboardButton("📋 បញ្ជីអតិថិជន & Group"),
-            KeyboardButton("📜 ប្រវត្តិការពារ & ការទិញបត")
+            KeyboardButton("➕ បន្ថែម Group តាម ID"),
+            KeyboardButton("📋 បញ្ជីអតិថិជន & Group")
         ],
         [
-            KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
-            KeyboardButton("📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel")
+            KeyboardButton("📜 ប្រវត្តិការពារ & ការទិញបត"),
+            KeyboardButton("🛡️ ឆែកស្ថានភាព Bot")
         ],
         [
-            KeyboardButton("🆔 មើលលេខ ID"),
+            KeyboardButton("📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
+            KeyboardButton("🆔 មើលលេខ ID")
+        ],
+        [
             KeyboardButton("🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)")
         ]
     ]
@@ -599,11 +603,14 @@ def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_client_admin_keyboard() -> ReplyKeyboardMarkup:
-    """ផ្ទាំងប៊ូតុងធម្មតា ២ សម្រាប់ Client Group Admins ក្នុង Group"""
+    """ផ្ទាំងប៊ូតុងសម្រាប់ Client Group Admins ឬ Master ក្នុង Group"""
     keyboard = [
         [
             KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
             KeyboardButton("🆔 មើលលេខ ID Group")
+        ],
+        [
+            KeyboardButton("🔄 Sync ក្រុមនេះចូលបញ្ជី")
         ]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
@@ -749,6 +756,8 @@ async def handle_service_messages(update: Update, context: ContextTypes.DEFAULT_
         return
     message = update.effective_message
     if message:
+        if message.chat_shared:
+            return
         try:
             await message.delete()
         except Exception:
@@ -1010,23 +1019,26 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
     if is_owner and chat.type in ["group", "supergroup"]:
         if text in [
             "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin",
+            "👥 ចុចរើសក្រុម (Select Group)", "👥 ចុចរើសក្រុម",
             "➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup",
+            "🔄 Sync ក្រុមនេះចូលបញ្ជី", "/sync",
             "📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients",
             "📜 ប្រវត្តិការពារ & ការទិញបត", "📜 ប្រវត្តិការពារ (Logs)", "/logs",
             "📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel", "/broadcast", "/channel",
             "❓ ការណែនាំ & ជំនួយ", "/help",
             "🛡️ ឆែកស្ថានភាព Bot", "/status", "/check",
             "🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id",
-            "🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start",
-            "/sync"
+            "🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"
         ]:
             try:
                 await update.effective_message.delete()
             except Exception:
                 pass
 
-            if text == "/sync":
+            if text in ["/sync", "🔄 Sync ក្រុមនេះចូលបញ្ជី"]:
                 await sync_group_command(update, context)
+            elif text in ["👥 ចុចរើសក្រុម (Select Group)", "👥 ចុចរើសក្រុម"]:
+                await prompt_select_group(context, user.id)
             elif text in ["➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup"]:
                 await prompt_add_group(context, user.id)
             elif text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
@@ -1071,10 +1083,13 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
             await process_manual_add_group(context, user.id, text, user_message=update.effective_message)
             return
 
-        if text in ["➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup"]:
+        if text in ["👥 ចុចរើសក្រុម (Select Group)", "👥 ចុចរើសក្រុម"]:
+            await prompt_select_group(context, user.id, user_message=update.effective_message)
+            return
+        elif text in ["➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup"]:
             await prompt_add_group(context, user.id, user_message=update.effective_message)
             return
-        elif text == "/sync":
+        elif text in ["/sync", "🔄 Sync ក្រុមនេះចូលបញ្ជី"]:
             await sync_group_command(update, context)
             return
         elif text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
@@ -1097,7 +1112,18 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
 
     # 3. ករណី Client Group Admin ប្រើក្នុង Group របស់ពួកគេ
     if is_admin and chat.type in ["group", "supergroup"]:
-        if text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
+        if text in ["🔄 Sync ក្រុមនេះចូលបញ្ជី", "/sync"]:
+            sync_client_record(chat, user, is_auth=False, is_enabled=False)
+            await notify_master_admin_new_group(context, chat, user)
+            await send_auto_delete_message(
+                context,
+                chat.id,
+                "✅ **[បានបញ្ជូនសំណើសុំបើកសិទ្ធិ]** សំណើត្រូវបានបញ្ជូនទៅ Master Super Admin ដើម្បីពិនិត្យ និងអនុញ្ញាត!",
+                delay=BOT_MSG_DELETE_SECONDS,
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        elif text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
             await status_command(update, context)
             return
         elif text in ["🆔 មើលលេខ ID Group", "/myid", "/id"]:
@@ -1384,14 +1410,15 @@ def generate_master_dashboard_keyboard() -> InlineKeyboardMarkup:
             keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
 
     keyboard.append([
-        InlineKeyboardButton("➕ បន្ថែម Group តាម ID", callback_data="dash_add_group"),
-        InlineKeyboardButton("🔄 Refresh បញ្ជី", callback_data="dash_refresh")
+        InlineKeyboardButton("👥 ចុចរើសក្រុម (Select Group)", callback_data="dash_select_group"),
+        InlineKeyboardButton("➕ បន្ថែម Group តាម ID", callback_data="dash_add_group")
     ])
     keyboard.append([
-        InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients"),
-        InlineKeyboardButton("📜 កំណត់ត្រា Logs", callback_data="dash_logs")
+        InlineKeyboardButton("🔄 Refresh បញ្ជី", callback_data="dash_refresh"),
+        InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients")
     ])
     keyboard.append([
+        InlineKeyboardButton("📜 កំណត់ត្រា Logs", callback_data="dash_logs"),
         InlineKeyboardButton("📢 ផ្សាយទៅ Channel", callback_data="dash_broadcast")
     ])
     return InlineKeyboardMarkup(keyboard)
@@ -1648,6 +1675,55 @@ async def leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def prompt_select_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, user_message=None):
+    """
+    បង្ហាញប៊ូតុងធំមួយឱ្យ Master Owner ចុចរើស Group ពី Telegram ដោយមិនបាច់វាយលេខសម្គាល់
+    """
+    picker_keyboard = ReplyKeyboardMarkup(
+        [
+            [KeyboardButton("👥 ចុចលើប៊ូតុងនេះដើម្បីរើសក្រុម (Select Group)", request_chat=KeyboardButtonRequestChat(request_id=101, chat_is_channel=False))],
+            [KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"), KeyboardButton("➕ បន្ថែម Group តាម ID")]
+        ],
+        resize_keyboard=True,
+        is_persistent=True
+    )
+    prompt_text = (
+        "👥 **[ចុចរើសក្រុមដែល BOT កំពុងនៅ - ONE-CLICK SELECT GROUP]** 👥\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👉 **សូមចុចលើប៊ូតុងខាងក្រោម៖**\n"
+        "`[ 👥 ចុចលើប៊ូតុងនេះដើម្បីរើសក្រុម (Select Group) ]`\n\n"
+        "✨ Telegram នឹងបើកបញ្ជីឈ្មោះ Group ទាំងអស់របស់លោកអ្នកភ្លាមៗ!\n"
+        "✨ លោកអ្នកគ្រាន់តែ**ចុចលើឈ្មោះក្រុមដែលចង់បាន** នោះ Bot នឹងទាញក្រុមនោះចូលបញ្ជី CRM និង**បើកសិទ្ធិការពារ ៧ ថ្ងៃ**ដោយស្វ័យប្រវត្តិ ១០០%!\n"
+        "━━━━━━━━━━━━━━━━━━━━"
+    )
+    await send_clean_command_response(
+        context,
+        chat_id=user_id,
+        text=prompt_text,
+        reply_markup=picker_keyboard,
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_message
+    )
+
+
+async def handle_chat_shared(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ទទួលបានទិន្នន័យ Group ដែល Master Owner បានចុចរើសពី Native Chat Picker
+    """
+    user = update.effective_user
+    if not is_sole_master_owner(user.id):
+        return
+
+    chat_shared = update.message.chat_shared if update.message else None
+    if not chat_shared:
+        return
+
+    target_chat_id = chat_shared.chat_id
+    raw_title = getattr(chat_shared, "title", None)
+    input_str = f"{target_chat_id} {raw_title}" if raw_title else str(target_chat_id)
+    await process_manual_add_group(context, user.id, input_str, user_message=update.effective_message)
+
+
 async def prompt_add_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, user_message=None):
     """
     បង្ហាញសារសួរនាំលេខ Group ID ពី Master Owner
@@ -1856,6 +1932,10 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
 
     if data == "dash_add_group":
         await prompt_add_group(context, user.id)
+        return
+
+    if data == "dash_select_group":
+        await prompt_select_group(context, user.id)
         return
 
     if data == "dash_back":
@@ -2175,6 +2255,9 @@ def main():
     # Catch when Bot is added to new groups
     app.add_handler(ChatMemberHandler(handle_bot_added_to_group, ChatMemberHandler.MY_CHAT_MEMBER))
 
+    # 👥 One-Click Native Chat Picker Receiver (CHAT_SHARED)
+    app.add_handler(MessageHandler(filters.StatusUpdate.CHAT_SHARED, handle_chat_shared))
+
     # 🧹 Auto-Delete Service messages
     app.add_handler(MessageHandler(filters.StatusUpdate.ALL, handle_service_messages))
 
@@ -2186,7 +2269,7 @@ def main():
     app.add_handler(MessageHandler(filters.Sticker.ALL | filters.ANIMATION, handle_regular_messages))
 
     # Master Menu Keyboard Router
-    app.add_handler(MessageHandler(filters.Regex(r"^(⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|➕ បន្ថែម Group តាម ID|➕ បន្ថែមក្រុម|📋 បញ្ជីអតិថិជន & Group|📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន|📜 ប្រវត្តិការពារ & ការទិញបត|📜 ប្រវត្តិការពារ \(Logs\)|📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel|🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID|🆔 មើលលេខ ID Group|❓ ការណែនាំ & ជំនួយ|🚀 ចាប់ផ្ដើម Bot ឡើងវិញ \(/start\))$"), handle_regular_messages))
+    app.add_handler(MessageHandler(filters.Regex(r"^(⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|👥 ចុចរើសក្រុម \(Select Group\)|👥 ចុចរើសក្រុម|➕ បន្ថែម Group តាម ID|➕ បន្ថែមក្រុម|🔄 Sync ក្រុមនេះចូលបញ្ជី|📋 បញ្ជីអតិថិជន & Group|📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន|📜 ប្រវត្តិការពារ & ការទិញបត|📜 ប្រវត្តិការពារ \(Logs\)|📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel|🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID|🆔 មើលលេខ ID Group|❓ ការណែនាំ & ជំនួយ|🚀 ចាប់ផ្ដើម Bot ឡើងវិញ \(/start\))$"), handle_regular_messages))
 
     print("[OK] Full Commercial CRM & Marketing Bot is fully active!")
     try:

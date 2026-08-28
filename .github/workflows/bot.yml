@@ -1,13 +1,15 @@
 name: Telegram Security Bot
 
 on:
-  workflow_dispatch: # អនុញ្ញាតឱ្យចុច Run ដោយផ្ទាល់ដៃ
-  schedule:
-    # ដំណើរការឡើងវិញរៀងរាល់ 5 ម៉ោងម្តង (មុនពេល GitHub Actions ដល់ Limit 6 ម៉ោង)
-    - cron: '0 */5 * * *'
-  push:
-    branches:
-      - main
+  workflow_dispatch: # អនុញ្ញាតឱ្យចុច Run ដោយផ្ទាល់ដៃ (Manual Only ពេលចង់តេស្ត)
+  # [បិទដំណើរការស្វ័យប្រវត្តិកុំឱ្យជាន់គ្នាជាមួយ Render]
+  # schedule:
+  #   # ដំណើរការឡើងវិញរៀងរាល់ 5 ម៉ោងម្តង (មុនពេល GitHub Actions ដល់ Limit 6 ម៉ោង)
+  #   - cron: '0 */5 * * *'
+  # push:
+  #   branches:
+  #     - main
+
 
 concurrency:
   group: telegram-security-bot-instance

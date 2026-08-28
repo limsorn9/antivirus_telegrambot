@@ -197,7 +197,7 @@ DEFAULT_CLIENTS_VAULT = {
         "activated_date": "2026-08-24 08:35:00",
         "expiry_date": "2026-09-23 08:35:00",
         "plan_type": "Standard 30 Days (កញ្ចប់ ១ ខែ)",
-        "is_lifetime": false,
+        "is_lifetime": False,
         "license_status": "🟢 ACTIVE (បានទិញសិទ្ធិ)",
         "customer_contact": {
             "name": "Sokha Trading Admin",
@@ -225,7 +225,7 @@ DEFAULT_CLIENTS_VAULT = {
         "activated_date": "2026-08-24 09:50:00",
         "expiry_date": "2026-11-22 09:50:00",
         "plan_type": "Quarterly 90 Days (កញ្ចប់ ៣ ខែ)",
-        "is_lifetime": false,
+        "is_lifetime": False,
         "license_status": "🟢 ACTIVE (បានទិញសិទ្ធិ)",
         "customer_contact": {
             "name": "Dara Online Shop",
@@ -1781,9 +1781,51 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         return
 
 
-# ==================== MAIN EXECUTION ====================
+# ==================== MAIN EXECUTION & RENDER HEALTH CHECK ====================
+
+async def start_web_health_server():
+    """
+    🌐 Render Web Health Check Server:
+    បើក HTTP Server ស្តាប់លើ $PORT (ដូចជា Port 10000 ឬ 8080)
+    ឆ្លើយតប HTTP 200 OK ជូន Render Health Scan ដោយស្វ័យប្រវត្តិ
+    ការពារបញ្ហា 'Port scan timeout' លើ Render Free Tier និងអនុញ្ញាតឱ្យ UptimeRobot ping រក្សា bot ឱ្យនៅរស់ ២៤/៧។
+    """
+    port_str = os.environ.get("PORT")
+    if not port_str:
+        logger.info("[Health Check] គ្មាន PORT ត្រូវបានកំណត់ទេ (រត់លើ Local/CLI ធម្មតា)")
+        return
+
+    try:
+        port = int(port_str)
+    except ValueError:
+        port = 8080
+
+    try:
+        from aiohttp import web
+
+        async def health_handler(request):
+            return web.Response(
+                text="🛡️ Telegram Security Bot is ALIVE & RUNNING on Render!\nStatus: 200 OK\nTimestamp: " + datetime.now().isoformat(),
+                content_type="text/plain",
+                status=200
+            )
+
+        health_app = web.Application()
+        health_app.router.add_get("/", health_handler)
+        health_app.router.add_get("/health", health_handler)
+        health_app.router.add_get("/ping", health_handler)
+
+        runner = web.AppRunner(health_app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logger.info(f"🌐 [Render Health Server] បានបើក Port {port} (0.0.0.0:{port}) ជូន Render Health Check រួចរាល់!")
+    except Exception as e:
+        logger.error(f"⚠️ [Render Health Server] បរាជ័យក្នុងការបើក Web Server: {e}")
+
 
 async def post_init(application):
+    asyncio.create_task(start_web_health_server())
     asyncio.create_task(daily_reminder_loop(application))
     asyncio.create_task(bot_message_sweeper_loop(application))
     try:

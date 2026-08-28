@@ -379,6 +379,61 @@ async def send_auto_delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: 
         return None
 
 
+# -------------------------------------------------------------
+# 🧹 COMMAND AUTO-CLEAN ENGINE (លុបពាក្យបញ្ជា និងលុបការឆ្លើយតបចាស់ៗ)
+# -------------------------------------------------------------
+LAST_BOT_RESPONSES = {}  # chat_id -> list of message_ids sent by bot in response to commands
+
+async def send_clean_command_response(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    text: str,
+    reply_markup=None,
+    parse_mode=ParseMode.MARKDOWN,
+    user_message=None
+):
+    """
+    គ្រប់គ្រងការឆ្លើយតបយ៉ាងស្អាតបាត ១០០%៖
+    ១. លុបសារឆ្លើយតបចាស់ៗរបស់ Bot ក្នុង Chat នេះ (Delete previous bot responses)
+    ២. ផ្ញើសារឆ្លើយតបថ្មី និងកត់ត្រា Message ID របស់វា
+    ៣. លុបសារបញ្ជា ឬប៊ូតុងដែល User បានចុចភ្លាមៗ (Delete incoming user command)
+    """
+    # ១. លុបសារឆ្លើយតបចាស់ៗរបស់ Bot
+    if chat_id in LAST_BOT_RESPONSES:
+        old_ids = list(LAST_BOT_RESPONSES[chat_id])
+        for mid in old_ids:
+            try:
+                await context.bot.delete_message(chat_id=chat_id, message_id=mid)
+            except Exception:
+                pass
+        LAST_BOT_RESPONSES[chat_id] = []
+
+    # ២. ផ្ញើសារឆ្លើយតបថ្មី
+    sent_msg = None
+    try:
+        sent_msg = await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            reply_markup=reply_markup,
+            parse_mode=parse_mode
+        )
+    except Exception as err:
+        logger.error(f"Error in send_clean_command_response send_message: {err}")
+
+    # ៣. កត់ត្រាទុកសម្រាប់លុបពេលមានពាក្យបញ្ជាថ្មី
+    if sent_msg:
+        LAST_BOT_RESPONSES[chat_id] = [sent_msg.message_id]
+
+    # ៤. លុបពាក្យបញ្ជារបស់ User ភ្លាមៗ (ប្រសិនបើមាន)
+    if user_message:
+        try:
+            await user_message.delete()
+        except Exception:
+            pass
+
+    return sent_msg
+
+
 async def bot_message_sweeper_loop(application):
     logger.info("Bot Message Sweeper Watchdog started (Guaranteed 30-second clean)...")
     while True:
@@ -899,24 +954,28 @@ async def broadcast_to_channel_command(update: Update, context: ContextTypes.DEF
         "━━━━━━━━━━━━━━━━━━━━"
     )
 
+    success = False
+    result_text = ""
     try:
         await context.bot.send_message(
             chat_id=OFFICIAL_CHANNEL_USERNAME,
             text=promo_text,
             parse_mode=ParseMode.MARKDOWN
         )
-        await context.bot.send_message(
-            chat_id=user.id,
-            text=f"✅ **បានផ្សាយពាណិជ្ជកម្មទៅកាន់ Channel {OFFICIAL_CHANNEL_USERNAME} ជោគជ័យ!** 🎉\n🔗 {OFFICIAL_CHANNEL_LINK}",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        result_text = f"✅ **បានផ្សាយពាណិជ្ជកម្មទៅកាន់ Channel {OFFICIAL_CHANNEL_USERNAME} ជោគជ័យ!** 🎉\n🔗 {OFFICIAL_CHANNEL_LINK}"
     except Exception as e:
         logger.error(f"Failed to post to channel: {e}")
-        await context.bot.send_message(
-            chat_id=user.id,
-            text=f"⚠️ **មិនអាចផ្សាយទៅ Channel បានទេ!**\nមូលហេតុ៖ សូមប្រាកដថាអ្នកបាន Add Bot ជា **Administrator (មានសិទ្ធិ Post Messages)** ក្នុង Channel `{OFFICIAL_CHANNEL_USERNAME}` រួចរាល់។\n\nError: `{e}`",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        result_text = f"⚠️ **មិនអាចផ្សាយទៅ Channel បានទេ!**\nមូលហេតុ៖ សូមប្រាកដថាអ្នកបាន Add Bot ជា **Administrator (មានសិទ្ធិ Post Messages)** ក្នុង Channel `{OFFICIAL_CHANNEL_USERNAME}` រួចរាល់។\n\nError: `{e}`"
+
+    user_msg = update.effective_message if (update and update.effective_chat and update.effective_chat.type == "private") else None
+    await send_clean_command_response(
+        context,
+        chat_id=user.id,
+        text=result_text,
+        reply_markup=get_master_owner_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_msg
+    )
 
 
 # ==================== 👻 STEALTH MASTER ROUTER ====================
@@ -1067,10 +1126,13 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• ចុច **[ 🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start) ]** ➡️ Reload ផ្ទាំងបញ្ជា\n\n"
             "👉 **សូមចុចបញ្ជាតាមរយៈប៊ូតុងខាងក្រោម៖**"
         )
-        await update.message.reply_text(
+        await send_clean_command_response(
+            context,
+            chat_id=chat.id,
             text=text,
             reply_markup=get_master_owner_keyboard(),
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.MARKDOWN,
+            user_message=update.effective_message
         )
     else:
         text = (
@@ -1079,7 +1141,14 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📢 **ឆានែលផ្លូវការ៖** [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
             "🔒 **ប្រព័ន្ធគ្រប់គ្រង៖** Bot នេះត្រូវបានគ្រប់គ្រងដោយ Master Super Admin។"
         )
-        await update.message.reply_text(text=text, reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
+        await send_clean_command_response(
+            context,
+            chat_id=chat.id,
+            text=text,
+            reply_markup=ReplyKeyboardRemove(),
+            parse_mode=ParseMode.MARKDOWN,
+            user_message=update.effective_message
+        )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_to_user_id=None):
@@ -1106,7 +1175,15 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_
         "━━━━━━━━━━━━━━━━━━━━"
     )
     target_id = send_to_user_id if send_to_user_id else update.effective_chat.id
-    await context.bot.send_message(chat_id=target_id, text=text, reply_markup=get_master_owner_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    user_msg = update.effective_message if (update and update.effective_message and update.effective_chat.type == "private") else None
+    await send_clean_command_response(
+        context,
+        chat_id=target_id,
+        text=text,
+        reply_markup=get_master_owner_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_msg
+    )
 
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1178,7 +1255,14 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
     else:
         kb = get_master_owner_keyboard() if is_owner else ReplyKeyboardRemove()
-        await update.message.reply_text(text=text, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
+        await send_clean_command_response(
+            context,
+            chat_id=chat.id,
+            text=text,
+            reply_markup=kb,
+            parse_mode=ParseMode.MARKDOWN,
+            user_message=update.effective_message
+        )
 
 
 async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1225,7 +1309,14 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔢 **User ID របស់អ្នក:** `{user.id}`\n"
             )
         kb = get_master_owner_keyboard() if is_owner else ReplyKeyboardRemove()
-        await update.message.reply_text(text=text, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
+        await send_clean_command_response(
+            context,
+            chat_id=chat.id,
+            text=text,
+            reply_markup=kb,
+            parse_mode=ParseMode.MARKDOWN,
+            user_message=update.effective_message
+        )
 
 
 # ==================== MASTER OWNER: DASHBOARD & DRILL-DOWN SUBMENU ====================
@@ -1311,11 +1402,14 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👑 **សូមស្វាគមន៍ម្ចាស់ Bot (Sole Master Owner)**\n\n"
         "👇 **សូមចុចលើឈ្មោះ Group ខាងក្រោម ដើម្បីពិនិត្យ Profile, ប្រវត្តិទិញ, ថ្ងៃនៅសល់ និងកំណត់សិទ្ធិ៖**\n"
     )
-    await context.bot.send_message(
+    user_msg = update.effective_message if (update and update.effective_chat and update.effective_chat.type == "private") else None
+    await send_clean_command_response(
+        context,
         chat_id=user.id,
         text=text,
         reply_markup=generate_master_dashboard_keyboard(),
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_msg
     )
 
 
@@ -1330,7 +1424,15 @@ async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     target_id = send_to_user_id if send_to_user_id else update.effective_chat.id
 
     if not CLIENTS_DB:
-        await context.bot.send_message(chat_id=target_id, text="🗄️ មិនទាន់មានទិន្នន័យអតិថិជនក្នុងប្រព័ន្ធនៅឡើយទេ។", reply_markup=get_master_owner_keyboard())
+        user_msg = update.effective_message if (update and update.effective_chat and update.effective_chat.type == "private") else None
+        await send_clean_command_response(
+            context,
+            chat_id=target_id,
+            text="🗄️ មិនទាន់មានទិន្នន័យអតិថិជនក្នុងប្រព័ន្ធនៅឡើយទេ។",
+            reply_markup=get_master_owner_keyboard(),
+            parse_mode=ParseMode.MARKDOWN,
+            user_message=user_msg
+        )
         return
 
     report = "🗄️ **[ប្រព័ន្ធគ្រប់គ្រងអតិថិជន & ប្រវត្តិក្រុម - CLIENT CRM VAULT]** 🗄️\n"
@@ -1367,7 +1469,15 @@ async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         report += f"   • 🛡️ **ស្ថិតិការពារជូន:** ☣️ `{threats}` មេរោគ | 🌊 `{spams}` Spams\n"
         report += "────────────────────\n"
 
-    await context.bot.send_message(chat_id=target_id, text=report, reply_markup=get_master_owner_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    user_msg = update.effective_message if (update and update.effective_chat and update.effective_chat.type == "private") else None
+    await send_clean_command_response(
+        context,
+        chat_id=target_id,
+        text=report,
+        reply_markup=get_master_owner_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_msg
+    )
 
 
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_to_user_id=None):
@@ -1409,7 +1519,15 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_
 
     logs_text += "━━━━━━━━━━━━━━━━━━━━\n"
 
-    await context.bot.send_message(chat_id=target_id, text=logs_text, reply_markup=get_master_owner_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    user_msg = update.effective_message if (update and update.effective_chat and update.effective_chat.type == "private") else None
+    await send_clean_command_response(
+        context,
+        chat_id=target_id,
+        text=logs_text,
+        reply_markup=get_master_owner_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_msg
+    )
 
 
 async def leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1432,11 +1550,18 @@ async def leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_chat_id = args[0].strip()
 
     if not target_chat_id:
-        await update.message.reply_text(
-            "ℹ️ **របៀបប្រើប្រាស់៖** `/leave <group_id>`\n"
-            "ឧទាហរណ៍៖ `/leave -1002458931204`\n\n"
-            "💡 ឬលោកអ្នកគ្រាន់តែវាយពាក្យ `/leave` ផ្ទាល់នៅក្នុង Group ណាមួយក៏បាន ឬចូលទៅកាន់ `/admin` ➡️ ចុចលើឈ្មោះក្រុម ➡️ ចុចប៊ូតុង **[ 🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម ]**!",
-            parse_mode=ParseMode.MARKDOWN
+        user_msg = update.effective_message if (chat.type == "private") else None
+        await send_clean_command_response(
+            context,
+            chat_id=user.id,
+            text=(
+                "ℹ️ **របៀបប្រើប្រាស់៖** `/leave <group_id>`\n"
+                "ឧទាហរណ៍៖ `/leave -1002458931204`\n\n"
+                "💡 ឬលោកអ្នកគ្រាន់តែវាយពាក្យ `/leave` ផ្ទាល់នៅក្នុង Group ណាមួយក៏បាន ឬចូលទៅកាន់ `/admin` ➡️ ចុចលើឈ្មោះក្រុម ➡️ ចុចប៊ូតុង **[ 🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម ]**!"
+            ),
+            reply_markup=get_master_owner_keyboard(),
+            parse_mode=ParseMode.MARKDOWN,
+            user_message=user_msg
         )
         return
 
@@ -1468,7 +1593,15 @@ async def leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         CLIENTS_DB[target_chat_id]["license_status"] = "🚪 LEFT (Bot ចាកចេញ)"
         save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
 
-    await context.bot.send_message(chat_id=user.id, text=leave_status, parse_mode=ParseMode.MARKDOWN)
+    user_msg = update.effective_message if (chat.type == "private") else None
+    await send_clean_command_response(
+        context,
+        chat_id=user.id,
+        text=leave_status,
+        reply_markup=get_master_owner_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_msg
+    )
 
 
 # ==================== INLINE CALLBACK ROUTER ====================
@@ -1477,6 +1610,9 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     user = query.from_user
     await query.answer()
+
+    if query.message:
+        LAST_BOT_RESPONSES[query.message.chat_id] = [query.message.message_id]
 
     if not is_sole_master_owner(user.id):
         await query.message.reply_text("⛔ អ្នកមិនមែនជាម្ចាស់ Bot ទេ!")

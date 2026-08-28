@@ -106,6 +106,7 @@ logger = logging.getLogger("MalwareGuardBot")
 SCAN_CACHE = {}
 FLOOD_TRACKER = {}
 PENDING_BOT_DELETIONS = []  # [(chat_id, message_id, expire_timestamp), ...]
+WAITING_FOR_GROUP_ID = {}  # user_id -> True (ពេលកំពុងរង់ចាំ Master វាយលេខ Group ID)
 
 
 # ==================== 🗄️ PRODUCTION STORAGE (REAL GROUPS ONLY) ====================
@@ -574,23 +575,23 @@ async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAUL
 
 def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
     """
-    ផ្ទាំងប៊ូតុងបញ្ជាពេញលេញ ៨ ជម្រើសសម្រាប់ Master Owner (240224709)
+    ផ្ទាំងប៊ូតុងបញ្ជាពេញលេញសម្រាប់ Master Owner (240224709)
     """
     keyboard = [
         [
             KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
-            KeyboardButton("📋 បញ្ជីអតិថិជន & Group")
+            KeyboardButton("➕ បន្ថែម Group តាម ID")
         ],
         [
-            KeyboardButton("📜 ប្រវត្តិការពារ & ការទិញបត"),
-            KeyboardButton("🛡️ ឆែកស្ថានភាព Bot")
+            KeyboardButton("📋 បញ្ជីអតិថិជន & Group"),
+            KeyboardButton("📜 ប្រវត្តិការពារ & ការទិញបត")
         ],
         [
-            KeyboardButton("📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
-            KeyboardButton("🆔 មើលលេខ ID")
+            KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
+            KeyboardButton("📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel")
         ],
         [
-            KeyboardButton("❓ ការណែនាំ & ជំនួយ"),
+            KeyboardButton("🆔 មើលលេខ ID"),
             KeyboardButton("🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)")
         ]
     ]
@@ -984,34 +985,51 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
     chat = update.effective_chat
     user = update.effective_user
 
+    is_owner = is_sole_master_owner(user.id)
+    is_admin = await is_client_group_admin(update, context)
+
+    # ហៅ និងកត់ត្រាក្រុមដែល Bot កំពុងនៅស្រាប់ ចូលក្នុងបញ្ជីដោយស្វ័យប្រវត្តិ
     if chat.type in ["group", "supergroup"] and str(chat.id) not in GROUPS_CONFIG:
-        sync_client_record(chat, user, is_auth=False, is_enabled=False)
+        if is_owner:
+            sync_client_record(chat, user, is_auth=True, is_enabled=True, plan_days=7)
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=f"✅ **[បានទាញក្រុមចូលបញ្ជីស្វ័យប្រវត្តិ]**\n\n👥 ក្រុម៖ **{chat.title}** (`{chat.id}`)\n🛒 បានបើកសិទ្ធិការពារ ៧ ថ្ងៃ (Trial 7 Days) ដោយជោគជ័យ!",
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            sync_client_record(chat, user, is_auth=False, is_enabled=False)
+            await notify_master_admin_new_group(context, chat, user)
 
     if await handle_anti_flood(update, context):
         return
 
     text = update.message.text.strip() if update.message and update.message.text else ""
-    is_owner = is_sole_master_owner(user.id)
-    is_admin = await is_client_group_admin(update, context)
 
     # 1. ករណី Master Owner វាយពាក្យបញ្ជា ឬចុចប៊ូតុងក្នុង Group ➡️ លុបសារពី Group ចោលភ្លាម & ផ្ញើទៅ Private Chat
     if is_owner and chat.type in ["group", "supergroup"]:
         if text in [
             "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin",
+            "➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup",
             "📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients",
             "📜 ប្រវត្តិការពារ & ការទិញបត", "📜 ប្រវត្តិការពារ (Logs)", "/logs",
             "📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel", "/broadcast", "/channel",
             "❓ ការណែនាំ & ជំនួយ", "/help",
             "🛡️ ឆែកស្ថានភាព Bot", "/status", "/check",
             "🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id",
-            "🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"
+            "🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start",
+            "/sync"
         ]:
             try:
                 await update.effective_message.delete()
             except Exception:
                 pass
 
-            if text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
+            if text == "/sync":
+                await sync_group_command(update, context)
+            elif text in ["➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup"]:
+                await prompt_add_group(context, user.id)
+            elif text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
                 await start_command(update, context)
             elif text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
                 await context.bot.send_message(
@@ -1036,7 +1054,30 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
 
     # 2. ករណី Master Owner ប្រើក្នុង Private Chat ផ្ទាល់ខ្លួន
     if is_owner and chat.type == "private":
-        if text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
+        # ពិនិត្យមើលថាតើកំពុងស្ថិតក្នុង State រង់ចាំវាយលេខ Group ID ឬទេ
+        if WAITING_FOR_GROUP_ID.get(user.id):
+            if text in ["/cancel", "❌ បោះបង់"]:
+                WAITING_FOR_GROUP_ID.pop(user.id, None)
+                await send_clean_command_response(
+                    context,
+                    chat_id=user.id,
+                    text="❌ **បានបោះបង់ការបន្ថែម Group រួចរាល់!**",
+                    reply_markup=get_master_owner_keyboard(),
+                    parse_mode=ParseMode.MARKDOWN,
+                    user_message=update.effective_message
+                )
+                return
+            WAITING_FOR_GROUP_ID.pop(user.id, None)
+            await process_manual_add_group(context, user.id, text, user_message=update.effective_message)
+            return
+
+        if text in ["➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup"]:
+            await prompt_add_group(context, user.id, user_message=update.effective_message)
+            return
+        elif text == "/sync":
+            await sync_group_command(update, context)
+            return
+        elif text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
             await start_command(update, context)
         elif text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
             await admin_command(update, context)
@@ -1343,11 +1384,14 @@ def generate_master_dashboard_keyboard() -> InlineKeyboardMarkup:
             keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
 
     keyboard.append([
-        InlineKeyboardButton("🔄 Refresh បញ្ជី", callback_data="dash_refresh"),
-        InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients")
+        InlineKeyboardButton("➕ បន្ថែម Group តាម ID", callback_data="dash_add_group"),
+        InlineKeyboardButton("🔄 Refresh បញ្ជី", callback_data="dash_refresh")
     ])
     keyboard.append([
-        InlineKeyboardButton("📜 កំណត់ត្រា Logs", callback_data="dash_logs"),
+        InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients"),
+        InlineKeyboardButton("📜 កំណត់ត្រា Logs", callback_data="dash_logs")
+    ])
+    keyboard.append([
         InlineKeyboardButton("📢 ផ្សាយទៅ Channel", callback_data="dash_broadcast")
     ])
     return InlineKeyboardMarkup(keyboard)
@@ -1604,6 +1648,191 @@ async def leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def prompt_add_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, user_message=None):
+    """
+    បង្ហាញសារសួរនាំលេខ Group ID ពី Master Owner
+    """
+    WAITING_FOR_GROUP_ID[user_id] = True
+    prompt_text = (
+        "➕ **[បន្ថែម GROUP ចូលបញ្ជីគ្រប់គ្រង - ADD GROUP BY ID]**\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👉 **សូមវាយ ឬផ្ញើលេខសម្គាល់ Group ID ចូលទីនេះ៖**\n"
+        "(ឧទាហរណ៍៖ `-1002458931204` ឬ `2458931204`)\n\n"
+        "💡 **មុខងារពិសេស៖**\n"
+        "• Bot នឹងទាញយកឈ្មោះក្រុមពិតប្រាកដពី Telegram ដោយស្វ័យប្រវត្តិ!\n"
+        "• ក្រុមដែលបានបន្ថែម នឹងទទួលបានសិទ្ធិ **៧ ថ្ងៃ (7-Day Trial)** ភ្លាមៗ!\n"
+        "• ឬលោកអ្នកអាចវាយពាក្យបញ្ជាកាត់៖ `/addgroup <Group_ID> [ឈ្មោះក្រុម]`\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "*(វាយ /cancel ដើម្បីបោះបង់)*"
+    )
+    await send_clean_command_response(
+        context,
+        chat_id=user_id,
+        text=prompt_text,
+        reply_markup=get_master_owner_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_message
+    )
+
+
+async def process_manual_add_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, raw_input: str, user_message=None):
+    """
+    ដំណើរការស្វែងរក និងបន្ថែម Group តាម ID ចូល Database ស្វ័យប្រវត្តិ
+    """
+    clean_text = raw_input.strip()
+    parts = clean_text.split(maxsplit=1)
+    id_part = parts[0].strip()
+    custom_title = parts[1].strip() if len(parts) > 1 else None
+
+    # ដោះស្រាយករណី user វាយលេខវិជ្ជមាន (ខ្វះ -100 សម្រាប់ supergroup)
+    possible_ids = []
+    try:
+        parsed_id = int(id_part)
+        possible_ids.append(parsed_id)
+        if parsed_id > 0:
+            possible_ids.append(int(f"-100{parsed_id}"))
+            possible_ids.append(-parsed_id)
+    except ValueError:
+        await send_clean_command_response(
+            context,
+            chat_id=user_id,
+            text="⚠️ **លេខ Group ID មិនត្រឹមត្រូវទេ!**\nសូមវាយតែលេខប៉ុណ្ណោះ (ឧទាហរណ៍៖ `-1002458931204` ឬ `2458931204`)។\n\n*(ចុច /cancel ដើម្បីបោះបង់)*",
+            reply_markup=get_master_owner_keyboard(),
+            parse_mode=ParseMode.MARKDOWN,
+            user_message=user_message
+        )
+        return
+
+    real_chat = None
+    final_chat_id = possible_ids[0]
+
+    for try_id in possible_ids:
+        try:
+            c = await context.bot.get_chat(chat_id=try_id)
+            if c:
+                real_chat = c
+                final_chat_id = try_id
+                break
+        except Exception:
+            continue
+
+    group_title = custom_title or (real_chat.title if real_chat and real_chat.title else f"Group {final_chat_id}")
+    chat_obj = real_chat if real_chat else type('obj', (object,), {'id': final_chat_id, 'title': group_title})
+
+    # បើកសិទ្ធិការពារ ៧ ថ្ងៃអូតូ
+    sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=7, is_lifetime=False)
+
+    # ផ្ញើសារអបអរសាទរទៅកាន់ Group (បើ Bot នៅក្នុងនោះស្រាប់)
+    try:
+        success_msg = (
+            "🎉 **[ប្រព័ន្ធសុវត្ថិភាព TELEGUARD BOT]** 🎉\n\n"
+            "🛡️ **Master Super Admin បានបើកដំណើរការប្រព័ន្ធការពារក្នុងក្រុមនេះដោយជោគជ័យ!**\n"
+            "🛒 កញ្ចប់៖ **Trial 7 Days (សាកល្បង ៧ ថ្ងៃ)**\n"
+            "✅ ស្កេនមេរោគ (.apk, .exe, .scr, .bat, .sh)\n"
+            "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (.jpg.apk, .pdf.apk)\n"
+            "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 30s"
+        )
+        await send_auto_delete_message(context, final_chat_id, success_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+    except Exception:
+        pass
+
+    found_in_tg = "✅ បានភ្ជាប់ និងទាញយកទិន្នន័យពី Telegram ដោយជោគជ័យ" if real_chat else "⚠️ បានកត់ត្រា ID ទុកជាមុន (Bot នឹងចាប់ផ្ដើមការពារពេលលោកអ្នក Add ចូលក្រុម)"
+
+    confirm_text = (
+        "✅ **[បានបន្ថែម GROUP ចូលបញ្ជីគ្រប់គ្រងជោគជ័យ]** ✅\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 **ឈ្មោះក្រុម:** `{group_title}`\n"
+        f"🆔 **លេខ Group ID:** `{final_chat_id}`\n"
+        f"🛒 **កញ្ចប់សេវា:** `Trial 7 Days (សាកល្បង ៧ ថ្ងៃ)`\n"
+        f"🛡️ **ស្ថានភាព:** 🟢 **ACTIVE (បើកដំណើរការ)**\n"
+        f"📡 **ការតភ្ជាប់:** {found_in_tg}\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👇 លោកអ្នកអាចចូលទៅកាន់ `/admin` ដើម្បីពិនិត្យ ឬបន្ថែមថ្ងៃបានគ្រប់ពេល!"
+    )
+
+    await send_clean_command_response(
+        context,
+        chat_id=user_id,
+        text=confirm_text,
+        reply_markup=get_master_owner_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_message
+    )
+
+
+async def addgroup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Command សម្រាប់ Master Owner បន្ថែម Group តាមពាក្យបញ្ជា /addgroup
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+    if not is_sole_master_owner(user.id):
+        return
+
+    args = context.args
+    user_msg = update.effective_message if chat.type == "private" else None
+    if not args:
+        await prompt_add_group(context, user.id, user_message=user_msg)
+        return
+
+    raw_input = " ".join(args)
+    await process_manual_add_group(context, user.id, raw_input, user_message=user_msg)
+
+
+async def sync_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Command សម្រាប់ Master Owner ហៅ/ទាញ Group ណាដែល Bot កំពុងនៅស្រាប់ ចូលក្នុងបញ្ជីភ្លាមៗ!
+    • វាយ /sync ក្នុង Group ណាមួយ ➡️ Bot នឹងទាញ Group នោះចូលបញ្ជី និងបើកសិទ្ធិ ៧ ថ្ងៃអូតូ!
+    • វាយ /sync ក្នុង Private Chat ➡️ បើកផ្ទាំងបន្ថែម Group
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+    if not is_sole_master_owner(user.id):
+        return
+
+    if chat.type in ["group", "supergroup"]:
+        try:
+            await update.effective_message.delete()
+        except Exception:
+            pass
+
+        # បើកសិទ្ធិ ៧ ថ្ងៃ និងកត់ត្រាចូលបញ្ជីភ្លាម
+        sync_client_record(chat, user=user, is_auth=True, is_enabled=True, plan_days=7, is_lifetime=False)
+
+        confirm_text = (
+            "✅ **[បានទាញក្រុមដែល Bot កំពុងនៅ ចូលបញ្ជីជោគជ័យ]** ✅\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 **ឈ្មោះក្រុម:** `{chat.title}`\n"
+            f"🆔 **លេខ Group ID:** `{chat.id}`\n"
+            f"🛒 **កញ្ចប់សេវា:** `Trial 7 Days (សាកល្បង ៧ ថ្ងៃ)`\n"
+            f"🛡️ **ស្ថានភាព:** 🟢 **ACTIVE (កំពុងការពារ)**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "💡 ក្រុមនេះត្រូវបានភ្ជាប់ និងបើកសិទ្ធិការពារ ៧ ថ្ងៃរួចរាល់ហើយ!"
+        )
+        await send_clean_command_response(
+            context,
+            chat_id=user.id,
+            text=confirm_text,
+            reply_markup=get_master_owner_keyboard(),
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+        try:
+            welcome_msg = (
+                "🎉 **[ប្រព័ន្ធសុវត្ថិភាព TELEGUARD BOT]** 🎉\n\n"
+                "🛡️ **Master Super Admin បានបើកដំណើរការប្រព័ន្ធការពារក្នុងក្រុមនេះដោយជោគជ័យ!**\n"
+                "🛒 កញ្ចប់៖ **Trial 7 Days (សាកល្បង ៧ ថ្ងៃ)**\n"
+                "✅ ស្កេនមេរោគ (.apk, .exe, .scr, .bat, .sh)\n"
+                "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (.jpg.apk, .pdf.apk)\n"
+                "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 30s"
+            )
+            await send_auto_delete_message(context, chat.id, welcome_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        except Exception:
+            pass
+    else:
+        await prompt_add_group(context, user.id, user_message=update.effective_message)
+
+
 # ==================== INLINE CALLBACK ROUTER ====================
 
 async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1623,6 +1852,10 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
     # 1. Main Navigation Callbacks
     if data == "dash_refresh":
         await query.edit_message_reply_markup(reply_markup=generate_master_dashboard_keyboard())
+        return
+
+    if data == "dash_add_group":
+        await prompt_add_group(context, user.id)
         return
 
     if data == "dash_back":
@@ -1886,6 +2119,8 @@ async def post_init(application):
         commands = [
             BotCommand("start", "🚀 ចាប់ផ្ដើម Bot / បើកផ្ទាំងបញ្ជា"),
             BotCommand("admin", "⚙️ ផ្ទាំងគ្រប់គ្រង Dashboard"),
+            BotCommand("addgroup", "➕ បន្ថែម Group តាម ID"),
+            BotCommand("sync", "🔄 ហៅ/ទាញក្រុមចូលបញ្ជី"),
             BotCommand("clients", "📋 បញ្ជីអតិថិជន CRM"),
             BotCommand("logs", "📜 ប្រវត្តិការពារ & ការទិញបត"),
             BotCommand("broadcast", "📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
@@ -1920,11 +2155,13 @@ def main():
 
     # Commands
     app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("admin", admin_command))
+    app.add_handler(CommandHandler("addgroup", addgroup_command))
+    app.add_handler(CommandHandler("sync", sync_group_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("check", status_command))
     app.add_handler(CommandHandler("leave", leave_command))
     app.add_handler(CommandHandler("myid", myid_command))
-    app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("groups", list_groups_command))
     app.add_handler(CommandHandler("clients", list_groups_command))
@@ -1949,7 +2186,7 @@ def main():
     app.add_handler(MessageHandler(filters.Sticker.ALL | filters.ANIMATION, handle_regular_messages))
 
     # Master Menu Keyboard Router
-    app.add_handler(MessageHandler(filters.Regex(r"^(⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|📋 បញ្ជីអតិថិជន & Group|📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន|📜 ប្រវត្តិការពារ & ការទិញបត|📜 ប្រវត្តិការពារ \(Logs\)|📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel|🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID|🆔 មើលលេខ ID Group|❓ ការណែនាំ & ជំនួយ|🚀 ចាប់ផ្ដើម Bot ឡើងវិញ \(/start\))$"), handle_regular_messages))
+    app.add_handler(MessageHandler(filters.Regex(r"^(⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard|⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel|➕ បន្ថែម Group តាម ID|➕ បន្ថែមក្រុម|📋 បញ្ជីអតិថិជន & Group|📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន|📜 ប្រវត្តិការពារ & ការទិញបត|📜 ប្រវត្តិការពារ \(Logs\)|📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel|🛡️ ឆែកស្ថានភាព Bot|🆔 មើលលេខ ID|🆔 មើលលេខ ID Group|❓ ការណែនាំ & ជំនួយ|🚀 ចាប់ផ្ដើម Bot ឡើងវិញ \(/start\))$"), handle_regular_messages))
 
     print("[OK] Full Commercial CRM & Marketing Bot is fully active!")
     try:

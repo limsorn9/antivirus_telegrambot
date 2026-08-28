@@ -1845,6 +1845,16 @@ async def post_init(application):
 
 
 def main():
+    # Ensure active event loop exists for Python 3.12, 3.13, and 3.14+ (Render compatibility)
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     if not TELEGRAM_BOT_TOKEN or TELEGRAM_BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN_HERE":
         logger.error("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN is missing! Please set TELEGRAM_BOT_TOKEN in Render Environment variables.")
         print("Error: TELEGRAM_BOT_TOKEN is missing!")

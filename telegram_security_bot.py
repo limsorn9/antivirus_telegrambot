@@ -980,6 +980,138 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"Error inspecting archive: {e}")
 
 
+async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ស្កេនហ្វាល់មេរោគតាមរយៈការ Reply ទៅលើសារចាស់ៗក្នុង Group
+    ឬផ្ញើហ្វាល់មកកាន់ Bot ក្នុង Private Chat
+    """
+    chat = update.effective_chat
+    msg = update.effective_message
+
+    # ករណី Reply លើសារណាមួយក្នុង Group
+    reply_msg = msg.reply_to_message if msg else None
+
+    # ករណីគ្មាន reply_to_message ហើយគ្មាន document លើសារផ្ទាល់
+    if not reply_msg and not (msg and msg.document):
+        help_scan = (
+            "🔍 **[របៀបប្រើប្រាស់មុខងារស្កេនមេរោគ /SCAN]** 🔍\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "👉 **ក្នុង Group:**\n"
+            "សូមចុច **Reply** ទៅលើសារ ឬហ្វាល់ចាស់ណាមួយ រួចវាយពាក្យ `/scan` នោះ Bot នឹងចូលទៅពិនិត្យស្កេនហ្វាល់នោះភ្លាមៗ! បើជាមេរោគ Bot នឹងលុបសារនោះចោលភ្លាម!\n\n"
+            "👉 **ក្នុង Private Chat:**\n"
+            "លោកអ្នកគ្រាន់តែ **Forward ហ្វាល់ ឬសារចាស់នោះ** មកកាន់ Bot ក្នុង Chat នេះផ្ទាល់ នោះ Bot នឹងវិភាគស្កេនជូនភ្លាមៗ!\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
+        )
+        if chat.type in ["group", "supergroup"]:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            await send_auto_delete_message(context, chat.id, help_scan, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        else:
+            await send_clean_command_response(context, chat_id=chat.id, text=help_scan, reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN, user_message=msg)
+        return
+
+    # សម្អាតសារពាក្យបញ្ជា /scan របស់អ្នកបញ្ជាភ្លាមៗ
+    if chat.type in ["group", "supergroup"]:
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+    target_msg = reply_msg if reply_msg else msg
+    doc = target_msg.document
+
+    if not doc:
+        notice = "ℹ️ **[លទ្ធផលស្កេន]** សារនេះមិនមែនជាហ្វាល់ឯកសារ ឬកម្មវិធីឡើយ (គ្មានហ្វាល់ត្រូវស្កេនទេ)!"
+        await send_auto_delete_message(context, chat.id, notice, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    file_name = doc.file_name or "unnamed_file"
+    file_size = doc.file_size or 0
+    sender = target_msg.from_user
+
+    analysis = analyze_filename(file_name)
+
+    # បើជាមេរោគគ្រោះថ្នាក់ (.apk, .exe, etc.)
+    if analysis.get("is_dangerous"):
+        try:
+            await target_msg.delete()
+        except Exception as e:
+            logger.error(f"Cannot delete target message: {e}")
+
+        action_taken = await punish_user(chat.id, sender.id, context) if sender else "សារត្រូវបានលុប"
+
+        chat_key = str(chat.id)
+        if chat_key in GROUPS_CONFIG:
+            GROUPS_CONFIG[chat_key]["threats_blocked_count"] = GROUPS_CONFIG[chat_key].get("threats_blocked_count", 0) + 1
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
+        record_audit_event(
+            event_type="MANUAL_SCAN_MALWARE",
+            chat_id=chat.id,
+            chat_title=chat.title or "Private Chat",
+            user_id=sender.id if sender else 0,
+            user_name=sender.full_name if sender else "Unknown",
+            details=f"File: {file_name} ({analysis['reason']})",
+            action=action_taken
+        )
+
+        warning_text = (
+            f"🛡️ **[ការប្រកាសអាសន្នសុវត្ថិភាព - SECURITY ALERT]** 🛡️\n\n"
+            f"⚠️ **បានរកឃើញ និងលុបហ្វាល់មេរោគចាស់ជាបន្ទាន់!**\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **ម្ចាស់ហ្វាល់:** {sender.full_name if sender else 'Unknown'}\n"
+            f"📁 **ឈ្មោះហ្វាល់:** `{file_name}`\n"
+            f"🔍 **ប្រភេទគ្រោះថ្នាក់:** {analysis['reason']}\n"
+            f"⚡ **ចំណាត់ការ:** សារចាស់ត្រូវបានលុបបំបាត់ភ្លាមៗ | {action_taken}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
+        )
+        await send_auto_delete_message(context, chat.id, warning_text, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # ករណី Archive -> ពិនិត្យជាមួយ VirusTotal
+    if analysis.get("need_hash_scan") and file_size <= 20 * 1024 * 1024:
+        try:
+            tg_file = await doc.get_file()
+            file_stream = io.BytesIO()
+            await tg_file.download_to_memory(file_stream)
+            file_bytes = file_stream.getvalue()
+
+            vt_result = await check_virustotal_hash(file_bytes)
+            if vt_result.get("is_malicious"):
+                try:
+                    await target_msg.delete()
+                except Exception:
+                    pass
+                action_taken = await punish_user(chat.id, sender.id, context) if sender else "សារត្រូវបានលុប"
+                warning_text = (
+                    f"☣️ **[រកឃើញមេរោគក្នុងហ្វាល់ដោយ VirusTotal]** ☣️\n\n"
+                    f"📁 **ឈ្មោះហ្វាល់:** `{file_name}`\n"
+                    f"🔬 **ពិន្ទុគ្រោះថ្នាក់:** {vt_result['malicious_count']} Security Engines ចាត់ទុកជាមេរោគ!\n"
+                    f"⚡ **ចំណាត់ការ:** សារចាស់ត្រូវបានលុបបំបាត់ភ្លាមៗ!\n\n"
+                    f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
+                )
+                await send_auto_delete_message(context, chat.id, warning_text, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+                return
+        except Exception as e:
+            logger.error(f"Error scanning archive in manual scan: {e}")
+
+    # បើហ្វាល់នោះស្អាត គ្មានមេរោគ
+    clean_text = (
+        f"✅ **[លទ្ធផលស្កេនសុវត្ថិភាព - CLEAN FILE]** ✅\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📁 **ឈ្មោះហ្វាល់:** `{file_name}`\n"
+        f"📦 **ទំហំ:** `{file_size / 1024:.1f} KB`\n"
+        f"🛡️ **លទ្ធផល:** **មានសុវត្ថិភាព (Safe & Clean)** គ្មានមេរោគឡើយ!\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
+    )
+    await send_auto_delete_message(context, chat.id, clean_text, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+
+
 # ==================== 📢 BROADCAST TO OFFICIAL CHANNEL ====================
 
 async def broadcast_to_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2503,6 +2635,7 @@ async def post_init(application):
             BotCommand("groups", "📋 បញ្ជីក្រុម និងអតិថិជន (CRM)"),
             BotCommand("addgroup", "➕ បន្ថែម ឬហៅក្រុមចាស់ចូលបញ្ជី"),
             BotCommand("sync", "🔄 ហៅ/ទាញក្រុមចូលបញ្ជី"),
+            BotCommand("scan", "🔍 ស្កេនមេរោគលើសារចាស់ (Reply /scan)"),
             BotCommand("logs", "📜 កំណត់ត្រាសុវត្ថិភាព (Logs)"),
             BotCommand("status", "🛡️ ឆែកស្ថានភាពប្រព័ន្ធការពារ"),
             BotCommand("broadcast", "📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
@@ -2544,6 +2677,7 @@ def main():
     app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("addgroup", addgroup_command))
     app.add_handler(CommandHandler("sync", sync_group_command))
+    app.add_handler(CommandHandler("scan", scan_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("check", status_command))
     app.add_handler(CommandHandler("leave", leave_command))

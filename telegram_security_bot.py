@@ -898,6 +898,7 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
 
     if chat.type in ["group", "supergroup"] and chat_key not in GROUPS_CONFIG:
         sync_client_record(chat, message.from_user, is_auth=False, is_enabled=False)
+        await notify_master_admin_new_group(context, chat, message.from_user)
 
     if chat.type in ["group", "supergroup"]:
         if not is_group_authorized(chat.id):
@@ -1135,6 +1136,55 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
 
     # 2. ករណី Master Owner ប្រើក្នុង Private Chat ផ្ទាល់ខ្លួន
     if is_owner and chat.type == "private":
+        # ពិនិត្យមើលថាតើ Master បាន Forward សារពី Group ចាស់ណាមួយមកកាន់ Bot ឬទេ
+        fwd_chat = None
+        if update.message:
+            if update.message.forward_from_chat:
+                fwd_chat = update.message.forward_from_chat
+            elif hasattr(update.message, "forward_origin") and update.message.forward_origin:
+                fwd_chat = getattr(update.message.forward_origin, "chat", None)
+
+        if fwd_chat and fwd_chat.type in ["group", "supergroup"]:
+            fwd_id = fwd_chat.id
+            fwd_title = fwd_chat.title or f"Group {fwd_id}"
+            
+            real_c = None
+            try:
+                real_c = await context.bot.get_chat(chat_id=fwd_id)
+            except Exception:
+                pass
+
+            c_obj = real_c if real_c else type('obj', (object,), {'id': fwd_id, 'title': fwd_title})
+            sync_client_record(c_obj, user=user, is_auth=True, is_enabled=True, plan_days=7)
+            record_audit_event(
+                event_type="OLD_GROUP_DISCOVERED_FORWARD",
+                chat_id=fwd_id,
+                chat_title=fwd_title,
+                user_id=user.id,
+                user_name=user.full_name,
+                details="Master Owner forwarded message from old group",
+                action="Auto-synced into CRM Vault with 7 Days Trial"
+            )
+            success_text = (
+                "🎉 **[បានទាញក្រុមចាស់ចូលបញ្ជីជោគជ័យតាមសារ FORWARD]** 🎉\n"
+                "━━━━━━━━━━━━━━━━━━━━\n"
+                f"👥 **ឈ្មោះក្រុម:** `{fwd_title}`\n"
+                f"🆔 **លេខ Group ID:** `{fwd_id}`\n"
+                f"🛒 **កញ្ចប់សេវា:** Plan 7 Days (សាកល្បង ៧ ថ្ងៃ)\n"
+                f"🔰 **ស្ថានភាពការពារ:** 🟢 កំពុងការពារយ៉ាងសកម្ម (SHIELD ON)\n\n"
+                f"✨ ក្រុមនេះត្រូវបានបញ្ចូលទៅក្នុងបញ្ជីគ្រប់គ្រង CRM Vault រួចរាល់ ១០០%!\n"
+                "━━━━━━━━━━━━━━━━━━━━"
+            )
+            await send_clean_command_response(
+                context,
+                chat_id=user.id,
+                text=success_text,
+                reply_markup=get_master_owner_keyboard(),
+                parse_mode=ParseMode.MARKDOWN,
+                user_message=update.effective_message
+            )
+            return
+
         # ពិនិត្យមើលថាតើកំពុងស្ថិតក្នុង State រង់ចាំវាយលេខ Group ID ឬទេ
         if WAITING_FOR_GROUP_ID.get(user.id):
             if text in ["/cancel", "❌ បោះបង់"]:
@@ -1307,7 +1357,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_
         f"• ចុចប៊ូតុង `[ 📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel ]` ដើម្បីផ្ញើសារប្រកាសលក់សេវាកម្មទៅកាន់ Channel `{OFFICIAL_CHANNEL_USERNAME}` របស់អ្នកភ្លាមៗ\n\n"
         "🔒 **៥. ប្រព័ន្ធ Stealth Privacy Mode៖**\n"
         "• ទោះបីជាអ្នកនៅក្នុង Group ណាក៏ដោយ ក៏ប៊ូតុង និងសារបញ្ជារបស់អ្នក **មិនបង្ហាញឱ្យសមាជិកក្នុង Group ឃើញឡើយ** (Bot បញ្ជូនមក Private Chat នេះដោយស្វ័យប្រវត្តិ)!\n\n"
-        "⏱️ **៦. កំណត់ពេលលុបសារស្វ័យប្រវត្តិ៖** ១៥ វិនាទី (មានប្រព័ន្ធ Sweeper Watchdog សម្អាតជាប្រចាំ)\n"
+        "🔍 **៧. របៀបហៅក្រុមចាស់ៗដែល Bot កំពុងនៅ ចូលក្នុងបញ្ជី (៤ វិធីងាយៗ)៖**\n"
+        "• **វិធីទី ១ (លឿនបំផុត):** គ្រាន់តែ **Forward សារណាមួយពីក្រុមចាស់នោះ** មកកាន់ Bot ក្នុង Chat នេះផ្ទាល់ នោះ Bot នឹងទាញក្រុមនោះចូល CRM និងបើកសិទ្ធិ ៧ ថ្ងៃជូនភ្លាម!\n"
+        "• **វិធីទី ២:** ចុចប៊ូតុង `[ 👥 ចុចរើសក្រុម (Select Group) ]` រួចចុចលើឈ្មោះក្រុម Telegram របស់អ្នក\n"
+        "• **វិធីទី ៣:** ចុចប៊ូតុង `[ ➕ បន្ថែម Group តាម ID ]` រួចវាយលេខ Group ID ឬ `@groupname`\n"
+        "• **វិធីទី ៤:** ចូលទៅក្នុងក្រុមចាស់នោះ រួចវាយពាក្យ `/sync` ឬចុចប៊ូតុង `[ 🔄 Sync ក្រុមនេះចូលបញ្ជី ]`\n\n"
+        "⏱️ **៨. កំណត់ពេលលុបសារស្វ័យប្រវត្តិ៖** ១៥ វិនាទី (មានប្រព័ន្ធ Sweeper Watchdog សម្អាតជាប្រចាំ)\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
     target_id = send_to_user_id if send_to_user_id else update.effective_chat.id
@@ -1824,14 +1879,16 @@ async def prompt_add_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, use
     """
     WAITING_FOR_GROUP_ID[user_id] = True
     prompt_text = (
-        "➕ **[បន្ថែម GROUP ចូលបញ្ជីគ្រប់គ្រង - ADD GROUP BY ID]**\n"
+        "➕ **[បន្ថែម/ហៅ GROUP ចាស់ៗចូលបញ្ជីគ្រប់គ្រង]** ➕\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "👉 **សូមវាយ ឬផ្ញើលេខសម្គាល់ Group ID ចូលទីនេះ៖**\n"
-        "(ឧទាហរណ៍៖ `-1002458931204` ឬ `2458931204`)\n\n"
-        "💡 **មុខងារពិសេស៖**\n"
-        "• Bot នឹងទាញយកឈ្មោះក្រុមពិតប្រាកដពី Telegram ដោយស្វ័យប្រវត្តិ!\n"
-        "• ក្រុមដែលបានបន្ថែម នឹងទទួលបានសិទ្ធិ **៧ ថ្ងៃ (7-Day Trial)** ភ្លាមៗ!\n"
-        "• ឬលោកអ្នកអាចវាយពាក្យបញ្ជាកាត់៖ `/addgroup <Group_ID> [ឈ្មោះក្រុម]`\n"
+        "👉 **លោកអ្នកអាចជ្រើសរើសវិធីណាមួយខាងក្រោម៖**\n\n"
+        "1️⃣ **Forward សារពី Group មកទីនេះ (ងាយស្រួលបំផុត):**\n"
+        "   ចូលទៅ Group ចាស់នោះ រួច Forward សារណាមួយមកកាន់ Bot ក្នុង Chat នេះ!\n\n"
+        "2️⃣ **វាយលេខ Group ID:**\n"
+        "   ឧទាហរណ៍៖ `-1002458931204` ឬ `2458931204`\n\n"
+        "3️⃣ **វាយ Username ក្រុម ឬ Link:**\n"
+        "   ឧទាហរណ៍៖ `@groupusername` ឬ `t.me/groupusername`\n\n"
+        "💡 *ក្រុមដែលបានបន្ថែម នឹងទទួលបានសិទ្ធិ **៧ ថ្ងៃ (7-Day Trial)** ភ្លាមៗ!*\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         "*(វាយ /cancel ដើម្បីបោះបង់)*"
     )
@@ -1847,44 +1904,72 @@ async def prompt_add_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, use
 
 async def process_manual_add_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, raw_input: str, user_message=None):
     """
-    ដំណើរការស្វែងរក និងបន្ថែម Group តាម ID ចូល Database ស្វ័យប្រវត្តិ
+    ដំណើរការស្វែងរក និងបន្ថែម Group តាម ID ឬ Username ឬ Link ចូល Database ស្វ័យប្រវត្តិ
     """
     clean_text = raw_input.strip()
     parts = clean_text.split(maxsplit=1)
     id_part = parts[0].strip()
     custom_title = parts[1].strip() if len(parts) > 1 else None
 
-    # ដោះស្រាយករណី user វាយលេខវិជ្ជមាន (ខ្វះ -100 សម្រាប់ supergroup)
-    possible_ids = []
-    try:
-        parsed_id = int(id_part)
-        possible_ids.append(parsed_id)
-        if parsed_id > 0:
-            possible_ids.append(int(f"-100{parsed_id}"))
-            possible_ids.append(-parsed_id)
-    except ValueError:
-        await send_clean_command_response(
-            context,
-            chat_id=user_id,
-            text="⚠️ **លេខ Group ID មិនត្រឹមត្រូវទេ!**\nសូមវាយតែលេខប៉ុណ្ណោះ (ឧទាហរណ៍៖ `-1002458931204` ឬ `2458931204`)។\n\n*(ចុច /cancel ដើម្បីបោះបង់)*",
-            reply_markup=get_master_owner_keyboard(),
-            parse_mode=ParseMode.MARKDOWN,
-            user_message=user_message
-        )
-        return
-
     real_chat = None
-    final_chat_id = possible_ids[0]
+    final_chat_id = None
 
-    for try_id in possible_ids:
+    # ករណី User វាយ Username (@groupname) ឬតំណភ្ជាប់ (t.me/groupname)
+    target_uname = id_part
+    if "t.me/" in target_uname:
+        target_uname = target_uname.split("t.me/")[-1].replace("/", "").strip()
+        if not target_uname.startswith("@") and not target_uname.startswith("+"):
+            target_uname = f"@{target_uname}"
+    elif target_uname.startswith("@"):
+        pass
+    else:
+        target_uname = None
+
+    if target_uname and not target_uname.startswith("@+"):
         try:
-            c = await context.bot.get_chat(chat_id=try_id)
+            c = await context.bot.get_chat(chat_id=target_uname)
             if c:
                 real_chat = c
-                final_chat_id = try_id
-                break
-        except Exception:
-            continue
+                final_chat_id = c.id
+        except Exception as e:
+            logger.error(f"Cannot resolve chat by username {target_uname}: {e}")
+
+    # បើមិនមែនជា username ឬរកមិនឃើញ ព្យាយាម parse ជាលេខ ID
+    if not real_chat:
+        possible_ids = []
+        try:
+            parsed_id = int(id_part)
+            possible_ids.append(parsed_id)
+            if parsed_id > 0:
+                possible_ids.append(int(f"-100{parsed_id}"))
+                possible_ids.append(-parsed_id)
+        except ValueError:
+            await send_clean_command_response(
+                context,
+                chat_id=user_id,
+                text=(
+                    "⚠️ **ទម្រង់ Group ID ឬ Link មិនត្រឹមត្រូវទេ!**\n\n"
+                    "👉 **វិធីទី ១:** វាយលេខ ID (ឧទាហរណ៍៖ `-1002458931204` ឬ `2458931204`)\n"
+                    "👉 **វិធីទី ២:** វាយ Username (ឧទាហរណ៍៖ `@groupname` ឬ `t.me/groupname`)\n"
+                    "👉 **វិធីទី ៣ (ងាយស្រួលបំផុត):** គ្រាន់តែ **Forward សារពី Group ចាស់នោះ** មកកាន់ Bot ក្នុង Chat នេះផ្ទាល់!\n\n"
+                    "*(ចុច /cancel ដើម្បីបោះបង់)*"
+                ),
+                reply_markup=get_master_owner_keyboard(),
+                parse_mode=ParseMode.MARKDOWN,
+                user_message=user_message
+            )
+            return
+
+        final_chat_id = possible_ids[0]
+        for try_id in possible_ids:
+            try:
+                c = await context.bot.get_chat(chat_id=try_id)
+                if c:
+                    real_chat = c
+                    final_chat_id = try_id
+                    break
+            except Exception:
+                continue
 
     group_title = custom_title or (real_chat.title if real_chat and real_chat.title else f"Group {final_chat_id}")
     chat_obj = real_chat if real_chat else type('obj', (object,), {'id': final_chat_id, 'title': group_title})

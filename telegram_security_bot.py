@@ -568,6 +568,33 @@ async def notify_master_admin_new_group(context: ContextTypes.DEFAULT_TYPE, chat
             logger.error(f"Failed to notify super admin {admin_id}: {e}")
 
 
+async def send_group_welcome_and_admin_prompt(context: ContextTypes.DEFAULT_TYPE, chat, added_by_user=None):
+    """
+    ផ្ញើសារស្វាគមន៍ទៅក្នុង Group ពេល Bot ត្រូវបានគេ Add ចូល
+    និងជំរុញ/ដាស់តឿនម្ចាស់ក្រុម (Group Owner/Admin) ឱ្យផ្ដល់សិទ្ធិជា Administrator ដល់ Bot
+    ដើម្បីអាចការពារក្រុម ស្កេនមេរោគ និងទប់ស្កាត់ Spammer បាន។
+    """
+    added_name = added_by_user.full_name if added_by_user else "Admin Group"
+    prompt_msg = (
+        f"🤖 **[ប្រព័ន្ធសុវត្ថិភាព TELEGUARD CYBERSECURITY]** 🎉\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👋 សូមស្វាគមន៍មកកាន់ក្រុម៖ **{chat.title or 'Unknown Group'}**\n"
+        f"👤 **អ្នក Add បញ្ចូល៖** {added_name}\n\n"
+        f"⚡ **[សេចក្ដីណែនាំបន្ទាន់សម្រាប់ម្ចាស់ក្រុម (Group Owner/Admin)]** ⚡\n"
+        f"👉 **សូម Promote / Set Bot ជា ADMINISTRATOR ជាបន្ទាន់!**\n"
+        f"⚠️ **មូលហេតុ៖** ប្រសិនបើ Bot មិនទាន់ជា Administrator ទេ Telegram នឹងមិនអនុញ្ញាតឱ្យ Bot លុបសារមេរោគ ឬកម្ចាត់ Spammer បានឡើយ!\n\n"
+        f"🔐 **សូមផ្ដល់សិទ្ធិ (Admin Permissions) ដូចខាងក្រោម៖**\n"
+        f"✅ **Delete Messages** (សិទ្ធិស្កេន និងលុបសារមេរោគស្វ័យប្រវត្តិ)\n"
+        f"✅ **Ban/Restrict Users** (សិទ្ធិទប់ស្កាត់អ្នកផ្ញើមេរោគ)\n\n"
+        f"🆔 **លេខ Group ID របស់អ្នក៖** `{chat.id}`\n"
+        f"⏳ **ស្ថានភាព៖** រង់ចាំការអនុញ្ញាតពី Master Super Admin (Pending Approval)\n"
+        f"👉 ឆានែលផ្លូវការ៖ [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
+    )
+    await send_auto_delete_message(context, chat.id, prompt_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+
+
 async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = update.my_chat_member
     if not result:
@@ -580,18 +607,17 @@ async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAUL
 
     if new_status in ["member", "administrator"] and old_status not in ["member", "administrator"]:
         sync_client_record(chat, user, is_auth=False, is_enabled=False)
-        await notify_master_admin_new_group(context, chat, user)
-
-        pending_msg = (
-            "🤖 **[ប្រព័ន្ធសុវត្ថិភាព TELEGUARD BOT]**\n\n"
-            "សូមអរគុណដែលបាន Add Bot ចូលក្នុងក្រុមនេះ! 🎉\n"
-            "⚠️ **ស្ថានភាព៖** មិនទាន់មានអាជ្ញាប័ណ្ណប្រើប្រាស់ (Inactive) នៅឡើយទេ។\n"
-            f"🆔 **លេខ Group ID របស់អ្នក៖** `{chat.id}`\n\n"
-            f"👉 ឆានែលផ្លូវការ៖ [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
-            "👉 សូមទាក់ទង **Master Super Admin** ដើម្បីទិញសិទ្ធិ និងបើកដំណើរការប្រព័ន្ធការពារពេញលេញ!\n"
-            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ១៥ វិនាទី)*"
+        record_audit_event(
+            event_type="BOT_ADDED_TO_GROUP",
+            chat_id=chat.id,
+            chat_title=chat.title or "Unknown Group",
+            user_id=user.id if user else 0,
+            user_name=user.full_name if user else "Unknown",
+            details=f"Bot added to group (Status: {new_status})",
+            action="Auto-synced into CRM Vault, waiting for Master approval"
         )
-        await send_auto_delete_message(context, chat.id, pending_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        await notify_master_admin_new_group(context, chat, user)
+        await send_group_welcome_and_admin_prompt(context, chat, user)
 
 
 # ==================== DYNAMIC KEYBOARD BUILDER ====================
@@ -774,16 +800,37 @@ async def punish_user(chat_id: int, user_id: int, context: ContextTypes.DEFAULT_
 # ==================== 🧹 AUTO-DELETE SERVICE MESSAGES ====================
 
 async def handle_service_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    if not message:
+        return
+    if message.chat_shared:
+        return
+
+    # ប្រសិនបើ Bot ត្រូវបាន Add ចូល Group តាមរយៈ StatusUpdate New Chat Member
+    if message.new_chat_members:
+        for m in message.new_chat_members:
+            if m.id == context.bot.id:
+                chat = update.effective_chat
+                user = message.from_user
+                sync_client_record(chat, user, is_auth=False, is_enabled=False)
+                record_audit_event(
+                    event_type="BOT_ADDED_TO_GROUP",
+                    chat_id=chat.id,
+                    chat_title=chat.title or "Unknown Group",
+                    user_id=user.id if user else 0,
+                    user_name=user.full_name if user else "Unknown",
+                    details="Bot added to group via new_chat_members",
+                    action="Auto-synced into CRM Vault, waiting for Master approval"
+                )
+                await notify_master_admin_new_group(context, chat, user)
+                await send_group_welcome_and_admin_prompt(context, chat, user)
+
     if not AUTO_DELETE_SERVICE_MSGS:
         return
-    message = update.effective_message
-    if message:
-        if message.chat_shared:
-            return
-        try:
-            await message.delete()
-        except Exception:
-            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
 
 
 # ==================== 🌊 SMART ANTI-FLOOD HANDLER ====================
@@ -1443,6 +1490,31 @@ def generate_master_dashboard_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton("📜 កំណត់ត្រា Logs", callback_data="dash_logs"),
         InlineKeyboardButton("📢 ផ្សាយទៅ Channel", callback_data="dash_broadcast")
     ])
+    keyboard.append([
+        InlineKeyboardButton("🚪 បញ្ជីក្រុមសម្រាប់បញ្ជាឱ្យ Bot ចេញ", callback_data="dash_leave_list")
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def generate_leave_groups_keyboard() -> InlineKeyboardMarkup:
+    """
+    បង្កើតបញ្ជីក្រុមទាំងអស់សម្រាប់ Master Owner ជ្រើសរើសបញ្ជាឱ្យ Bot ចាកចេញ
+    """
+    keyboard = []
+    if not GROUPS_CONFIG:
+        keyboard.append([InlineKeyboardButton("❌ គ្មានក្រុមណាក្នុងបញ្ជីទេ", callback_data="none")])
+    else:
+        for chat_id, data in GROUPS_CONFIG.items():
+            title = data.get("title", f"Group {chat_id}")
+            plan = data.get("plan_type", "")
+            is_left = "ចាកចេញ" in plan or "LEFT" in plan
+            status_prefix = "🚪 [បានចេញរួច]" if is_left else "👥"
+            btn_text = f"{status_prefix} ចេញពី៖ {title[:16]}"
+            keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"confirm_leave_{chat_id}")])
+
+    keyboard.append([
+        InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")
+    ])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -1980,6 +2052,36 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         await prompt_select_group(context, user.id)
         return
 
+    if data == "dash_leave_list":
+        text = (
+            "🚪 **[ជ្រើសរើសក្រុមដើម្បីបញ្ជាឱ្យ BOT ចាកចេញ]** 🚪\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "👉 សូមចុចលើប៊ូតុងឈ្មោះក្រុមខាងក្រោមដែលលោកអ្នកចង់ឱ្យ Bot ចាកចេញ៖\n"
+            "*(រាល់ទិន្នន័យអតិថិជន និងប្រវត្តិការពារ នឹងនៅតែរក្សាទុកក្នុង Vault យ៉ាងគង់វង្ស)*"
+        )
+        await query.edit_message_text(text=text, reply_markup=generate_leave_groups_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    if data.startswith("confirm_leave_"):
+        chat_id = data.replace("confirm_leave_", "")
+        group_title = GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")
+        confirm_keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ បញ្ជាក់៖ ឱ្យ Bot ចេញភ្លាម", callback_data=f"leave_{chat_id}"),
+                InlineKeyboardButton("❌ បោះបង់", callback_data="dash_leave_list")
+            ]
+        ])
+        text = (
+            f"⚠️ **[បញ្ជាក់ការបញ្ជាឱ្យ Bot ចាកចេញពីក្រុម]**\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 **ឈ្មោះក្រុម:** `{group_title}`\n"
+            f"🆔 **លេខ Group ID:** `{chat_id}`\n\n"
+            f"👉 **តើលោកអ្នកពិតជាចង់ឱ្យ Bot ចាកចេញពីក្រុមនេះមែនឬទេ?**\n"
+            f"*(Bot នឹងផ្ញើសារលាហើយក្នុងក្រុម រួចចាកចេញភ្លាមៗ)*"
+        )
+        await query.edit_message_text(text=text, reply_markup=confirm_keyboard, parse_mode=ParseMode.MARKDOWN)
+        return
+
     if data == "dash_back":
         text = (
             "⚙️ **[ផ្ទាំងគ្រប់គ្រង MASTER BOT DASHBOARD]** ⚙️\n\n"
@@ -2121,10 +2223,21 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         group_title = GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")
         leave_status = ""
         try:
+            try:
+                goodbye_msg = (
+                    "👋 **[ជម្រាបលា - TELEGUARD BOT]**\n\n"
+                    "Bot ត្រូវបានបញ្ជាដោយ Master Super Admin ឱ្យចាកចេញពីក្រុមនេះ។\n"
+                    f"👉 ប្រសិនបើត្រូវការប្រើប្រាស់ឡើងវិញ សូមទាក់ទង [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
+                    "សូមអរគុណ!"
+                )
+                await context.bot.send_message(chat_id=int(chat_id), text=goodbye_msg, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                pass
+
             await context.bot.leave_chat(chat_id=int(chat_id))
             leave_status = "✅ Bot បានចាកចេញពីក្រុម Telegram នោះដោយជោគជ័យ!"
         except Exception as e:
-            leave_status = f"⚠️ មិនអាចចាកចេញពីក្រុមបានទេ៖ {e}"
+            leave_status = f"⚠️ មិនអាចចាកចេញពីក្រុមបានទេ (Bot ប្រហែលជាមិននៅក្នុងក្រុមនោះទៀតឡើយ)៖ {e}"
 
         if str(chat_id) in GROUPS_CONFIG:
             GROUPS_CONFIG[str(chat_id)]["is_authorized"] = False
@@ -2136,11 +2249,28 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
             CLIENTS_DB[str(chat_id)]["license_status"] = "🚪 LEFT (Bot ចាកចេញ)"
             save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
 
-        await query.edit_message_text(
+        record_audit_event(
+            event_type="BOT_LEAVE_GROUP",
+            chat_id=int(chat_id),
+            chat_title=group_title,
+            user_id=user.id,
+            user_name=user.full_name,
+            details="Master Owner forced bot to leave group",
+            action=leave_status
+        )
+
+        confirm_text = (
             f"🚪 **[បានបញ្ជាឱ្យ Bot ចាកចេញពីក្រុម]**\n\n"
-            f"👥 ក្រុម៖ **{group_title}** (`{chat_id}`)\n"
-            f"⚡ ស្ថានភាព៖ {leave_status}",
-            reply_markup=generate_master_dashboard_keyboard(),
+            f"👥 **ក្រុម៖** `{group_title}` (`{chat_id}`)\n"
+            f"⚡ **ស្ថានភាព៖** {leave_status}\n\n"
+            f"📁 *កំណត់សម្គាល់៖ ទិន្នន័យអតិថិជន និងប្រវត្តិការពារត្រូវបានរក្សាទុកក្នុង Vault យ៉ាងគង់វង្ស ១០០%!*"
+        )
+        await query.edit_message_text(
+            confirm_text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚪 បញ្ជីក្រុមសម្រាប់ឱ្យ Bot ចេញបន្ត", callback_data="dash_leave_list")],
+                [InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")]
+            ]),
             parse_mode=ParseMode.MARKDOWN
         )
         return

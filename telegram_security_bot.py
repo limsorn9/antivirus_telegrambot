@@ -54,6 +54,7 @@ from telegram import (
     ReplyKeyboardRemove,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    MenuButtonCommands,
 )
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -622,46 +623,17 @@ async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAUL
 
 # ==================== DYNAMIC KEYBOARD BUILDER ====================
 
-def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
+def get_master_owner_keyboard() -> ReplyKeyboardRemove:
     """
-    ផ្ទាំងប៊ូតុងបញ្ជាពេញលេញសម្រាប់ Master Owner (240224709)
+    ដកប៊ូតុងខាងក្រោមឆាត (ReplyKeyboardMarkup) ចេញទាំងអស់
+    តាមការស្នើសុំរបស់អ្នកប្រើប្រាស់ (ប្រើតែ Telegram Native Menu Button & Inline Buttons)
     """
-    keyboard = [
-        [
-            KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
-            KeyboardButton("👥 ចុចរើសក្រុម (Select Group)", request_chat=KeyboardButtonRequestChat(request_id=101, chat_is_channel=False))
-        ],
-        [
-            KeyboardButton("➕ បន្ថែម Group តាម ID"),
-            KeyboardButton("📋 បញ្ជីអតិថិជន & Group")
-        ],
-        [
-            KeyboardButton("📜 ប្រវត្តិការពារ & ការទិញបត"),
-            KeyboardButton("🛡️ ឆែកស្ថានភាព Bot")
-        ],
-        [
-            KeyboardButton("📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
-            KeyboardButton("🆔 មើលលេខ ID")
-        ],
-        [
-            KeyboardButton("🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)")
-        ]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
+    return ReplyKeyboardRemove()
 
 
-def get_client_admin_keyboard() -> ReplyKeyboardMarkup:
-    """ផ្ទាំងប៊ូតុងសម្រាប់ Client Group Admins ឬ Master ក្នុង Group"""
-    keyboard = [
-        [
-            KeyboardButton("🛡️ ឆែកស្ថានភាព Bot"),
-            KeyboardButton("🆔 មើលលេខ ID Group")
-        ],
-        [
-            KeyboardButton("🔄 Sync ក្រុមនេះចូលបញ្ជី")
-        ]
-    ]
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, is_persistent=True)
+def get_client_admin_keyboard() -> ReplyKeyboardRemove:
+    """ដកប៊ូតុងខាងក្រោមឆាតចេញទាំងអស់សម្រាប់ Client Admins"""
+    return ReplyKeyboardRemove()
 
 
 # ==================== MALWARE DETECTION RULES ====================
@@ -1306,17 +1278,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"👑 **សូមស្វាគមន៍ម្ចាស់ Bot ផ្ទាល់! (Sole Master Owner - ID: `{user.id}`)**\n\n"
             "🎛️ **ផ្ទាំងបញ្ជាគ្រប់គ្រងពេញលេញ (100% Full Commercial & CRM Control)៖**\n"
             "• ចុច **[ ⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard ]** ➡️ មើល Profile Group, ថ្ងៃទិញ, ថ្ងៃនៅសល់, និងកំណត់សិទ្ធិ\n"
-            "• ចុច **[ 📋 បញ្ជីអតិថិជន & Group ]** ➡️ ពិនិត្យបញ្ជីអតិថិជន CRM និងកញ្ចប់សេវា\n"
+            "• ចុច **[ 📋 បញ្ជីអតិថិជន CRM ]** ➡️ ពិនិត្យបញ្ជីអតិថិជន CRM និងកញ្ចប់សេវា\n"
             "• ចុច **[ 📜 ប្រវត្តិការពារ & ការទិញបត ]** ➡️ មើល Logs មេរោគ និងប្រវត្តិទិញបត\n"
             f"• ចុច **[ 📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel ]** ➡️ ផ្សាយទៅ Channel `{OFFICIAL_CHANNEL_USERNAME}`\n"
             "• ចុច **[ 🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start) ]** ➡️ Reload ផ្ទាំងបញ្ជា\n\n"
-            "👉 **សូមចុចបញ្ជាតាមរយៈប៊ូតុងខាងក្រោម៖**"
+            "👇 **សូមចុចលើប៊ូតុង Dashboard ខាងក្រោម ឬចុចលើ Menu (ឆ្វេងដៃក្រោម) ដើម្បីជ្រើសរើសមុខងារ៖**"
         )
         await send_clean_command_response(
             context,
             chat_id=chat.id,
             text=text,
-            reply_markup=get_master_owner_keyboard(),
+            reply_markup=generate_master_dashboard_keyboard(),
             parse_mode=ParseMode.MARKDOWN,
             user_message=update.effective_message
         )
@@ -1534,19 +1506,16 @@ def generate_master_dashboard_keyboard() -> InlineKeyboardMarkup:
             keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
 
     keyboard.append([
-        InlineKeyboardButton("👥 ចុចរើសក្រុម (Select Group)", callback_data="dash_select_group"),
-        InlineKeyboardButton("➕ បន្ថែម Group តាម ID", callback_data="dash_add_group")
+        InlineKeyboardButton("➕ បន្ថែម Group តាម ID/Link", callback_data="dash_add_group"),
+        InlineKeyboardButton("🔄 Refresh បញ្ជី", callback_data="dash_refresh")
     ])
     keyboard.append([
-        InlineKeyboardButton("🔄 Refresh បញ្ជី", callback_data="dash_refresh"),
-        InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients")
+        InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients"),
+        InlineKeyboardButton("📜 កំណត់ត្រា Logs", callback_data="dash_logs")
     ])
     keyboard.append([
-        InlineKeyboardButton("📜 កំណត់ត្រា Logs", callback_data="dash_logs"),
-        InlineKeyboardButton("📢 ផ្សាយទៅ Channel", callback_data="dash_broadcast")
-    ])
-    keyboard.append([
-        InlineKeyboardButton("🚪 បញ្ជីក្រុមសម្រាប់បញ្ជាឱ្យ Bot ចេញ", callback_data="dash_leave_list")
+        InlineKeyboardButton("📢 ផ្សាយទៅ Channel", callback_data="dash_broadcast"),
+        InlineKeyboardButton("🚪 បញ្ជាឱ្យ Bot ចេញពីក្រុម", callback_data="dash_leave_list")
     ])
     return InlineKeyboardMarkup(keyboard)
 
@@ -1826,30 +1795,28 @@ async def leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def prompt_select_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, user_message=None):
     """
-    បង្ហាញប៊ូតុងធំមួយឱ្យ Master Owner ចុចរើស Group ពី Telegram ដោយមិនបាច់វាយលេខសម្គាល់
+    ណែនាំ Master Owner ពីវិធីហៅក្រុម ឬជ្រើសរើសក្រុមចាស់ៗ
     """
-    picker_keyboard = ReplyKeyboardMarkup(
-        [
-            [KeyboardButton("👥 ចុចលើប៊ូតុងនេះដើម្បីរើសក្រុម (Select Group)", request_chat=KeyboardButtonRequestChat(request_id=101, chat_is_channel=False))],
-            [KeyboardButton("⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"), KeyboardButton("➕ បន្ថែម Group តាម ID")]
-        ],
-        resize_keyboard=True,
-        is_persistent=True
-    )
     prompt_text = (
-        "👥 **[ចុចរើសក្រុមដែល BOT កំពុងនៅ - ONE-CLICK SELECT GROUP]** 👥\n"
+        "👥 **[វិធីហៅក្រុមដែល BOT កំពុងនៅ ចូលក្នុងបញ្ជី]** 👥\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "👉 **សូមចុចលើប៊ូតុងខាងក្រោម៖**\n"
-        "`[ 👥 ចុចលើប៊ូតុងនេះដើម្បីរើសក្រុម (Select Group) ]`\n\n"
-        "✨ Telegram នឹងបើកបញ្ជីឈ្មោះ Group ទាំងអស់របស់លោកអ្នកភ្លាមៗ!\n"
-        "✨ លោកអ្នកគ្រាន់តែ**ចុចលើឈ្មោះក្រុមដែលចង់បាន** នោះ Bot នឹងទាញក្រុមនោះចូលបញ្ជី CRM និង**បើកសិទ្ធិការពារ ៧ ថ្ងៃ**ដោយស្វ័យប្រវត្តិ ១០០%!\n"
+        "👉 **វិធីទី ១ (ងាយស្រួលបំផុត & លឿនបំផុត):**\n"
+        "ចូលទៅ Group ចាស់នោះ រួច **Forward សារ ឬ Sticker ណាមួយ** មកកាន់ Bot ក្នុង Chat នេះផ្ទាល់ នោះ Bot នឹងទាញក្រុមនោះចូល CRM និងបើកសិទ្ធិ ៧ ថ្ងៃជូនភ្លាមៗ!\n\n"
+        "👉 **វិធីទី ២:**\n"
+        "វាយពាក្យបញ្ជាកាត់៖ `/addgroup <ID_ឬ_Username>` (ឧទាហរណ៍៖ `/addgroup @mygroup`)\n\n"
+        "👉 **វិធីទី ៣:**\n"
+        "ចូលទៅក្នុង Group នោះ រួចវាយពាក្យបញ្ជា `/sync`\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
+    inline_kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ បន្ថែម Group តាម ID/Link", callback_data="dash_add_group")],
+        [InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")]
+    ])
     await send_clean_command_response(
         context,
         chat_id=user_id,
         text=prompt_text,
-        reply_markup=picker_keyboard,
+        reply_markup=inline_kb,
         parse_mode=ParseMode.MARKDOWN,
         user_message=user_message
     )
@@ -2454,19 +2421,23 @@ async def post_init(application):
     asyncio.create_task(bot_message_sweeper_loop(application))
     try:
         commands = [
-            BotCommand("start", "🚀 ចាប់ផ្ដើម Bot / បើកផ្ទាំងបញ្ជា"),
-            BotCommand("admin", "⚙️ ផ្ទាំងគ្រប់គ្រង Dashboard"),
-            BotCommand("addgroup", "➕ បន្ថែម Group តាម ID"),
+            BotCommand("admin", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
+            BotCommand("groups", "📋 បញ្ជីក្រុម និងអតិថិជន (CRM)"),
+            BotCommand("addgroup", "➕ បន្ថែម ឬហៅក្រុមចាស់ចូលបញ្ជី"),
             BotCommand("sync", "🔄 ហៅ/ទាញក្រុមចូលបញ្ជី"),
-            BotCommand("clients", "📋 បញ្ជីអតិថិជន CRM"),
-            BotCommand("logs", "📜 ប្រវត្តិការពារ & ការទិញបត"),
+            BotCommand("logs", "📜 កំណត់ត្រាសុវត្ថិភាព (Logs)"),
+            BotCommand("status", "🛡️ ឆែកស្ថានភាពប្រព័ន្ធការពារ"),
             BotCommand("broadcast", "📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
-            BotCommand("status", "🛡️ ឆែកស្ថានភាព Bot"),
             BotCommand("leave", "🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម"),
-            BotCommand("myid", "🆔 មើលលេខ ID"),
-            BotCommand("help", "❓ ការណែនាំ & ជំនួយ")
+            BotCommand("myid", "🆔 មើលលេខ Telegram ID"),
+            BotCommand("help", "❓ ការណែនាំ & ជំនួយ"),
+            BotCommand("start", "🚀 ចាប់ផ្ដើម Bot / បើកផ្ទាំងបញ្ជា")
         ]
         await application.bot.set_my_commands(commands)
+        try:
+            await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Error setting bot commands: {e}")
 

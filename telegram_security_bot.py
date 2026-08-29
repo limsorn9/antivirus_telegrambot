@@ -1542,6 +1542,37 @@ def generate_leave_groups_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 
+def generate_clients_list_keyboard() -> InlineKeyboardMarkup:
+    """
+    បង្កើតបញ្ជីឈ្មោះអតិថិជន CRM ជាប៊ូតុងរាយឈ្មោះ ដែលពេលចុចលើឈ្មោះទើបបង្ហាញព័ត៌មានលម្អិត
+    """
+    keyboard = []
+    if not CLIENTS_DB:
+        keyboard.append([InlineKeyboardButton("❌ មិនទាន់មានទិន្នន័យអតិថិជននៅឡើយទេ", callback_data="none")])
+    else:
+        for cid, cdata in CLIENTS_DB.items():
+            contact = cdata.get("customer_contact", {})
+            c_name = contact.get("name") or "Unknown"
+            gname = cdata.get("client_group_name") or f"Group {cid}"
+            status = cdata.get("license_status", "")
+
+            if "Active" in status or "សកម្ម" in status or "Trial" in status:
+                icon = "🟢"
+            elif "LEFT" in status or "ចាកចេញ" in status:
+                icon = "🚪"
+            else:
+                icon = "🔴"
+
+            btn_text = f"{icon} {c_name[:14]} | {gname[:14]}"
+            keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"client_detail_{cid}")])
+
+    keyboard.append([
+        InlineKeyboardButton("🔄 Refresh បញ្ជី", callback_data="dash_clients"),
+        InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")
+    ])
+    return InlineKeyboardMarkup(keyboard)
+
+
 def generate_group_detail_keyboard(chat_id: str) -> InlineKeyboardMarkup:
     """
     Sub-menu បញ្ជា និងកំណត់សិទ្ធិ/រយៈពេលប្រើប្រាស់របស់ Group នីមួយៗ
@@ -1568,6 +1599,7 @@ def generate_group_detail_keyboard(chat_id: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🗑️ លុប Group ចេញ", callback_data=f"set_del_{chat_id}")
         ],
         [
+            InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients"),
             InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")
         ]
     ]
@@ -1604,7 +1636,7 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE, send_to_user_id=None):
     """
-    បង្ហាញបញ្ជីអតិថិជន និងព័ត៌មាន Group លម្អិត (Client CRM Database)
+    បង្ហាញបញ្ជីឈ្មោះអតិថិជន CRM ជាប៊ូតុងរាយឈ្មោះ (ចុចលើឈ្មោះទើបបង្ហាញព័ត៌មានលម្អិត)
     """
     user = update.effective_user
     if not is_sole_master_owner(user.id):
@@ -1617,53 +1649,26 @@ async def list_groups_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await send_clean_command_response(
             context,
             chat_id=target_id,
-            text="🗄️ មិនទាន់មានទិន្នន័យអតិថិជនក្នុងប្រព័ន្ធនៅឡើយទេ។",
-            reply_markup=get_master_owner_keyboard(),
+            text="🗄️ **មិនទាន់មានទិន្នន័យអតិថិជនក្នុងប្រព័ន្ធ CRM នៅឡើយទេ។**",
+            reply_markup=ReplyKeyboardRemove(),
             parse_mode=ParseMode.MARKDOWN,
             user_message=user_msg
         )
         return
 
-    report = "🗄️ **[ប្រព័ន្ធគ្រប់គ្រងអតិថិជន & ប្រវត្តិក្រុម - CLIENT CRM VAULT]** 🗄️\n"
-    report += "━━━━━━━━━━━━━━━━━━━━\n\n"
-
-    for idx, (cid, cdata) in enumerate(CLIENTS_DB.items(), start=1):
-        gname = cdata.get("client_group_name", f"Group {cid}")
-        status = cdata.get("license_status", "N/A")
-        plan_type = cdata.get("plan_type", "N/A")
-        is_life = cdata.get("is_lifetime", False)
-        exp_date = cdata.get("expiry_date", "N/A")
-        rem_str = get_remaining_time_str(exp_date, is_life)
-
-        contact = cdata.get("customer_contact", {})
-        c_name = contact.get("name", "N/A")
-        c_uname = contact.get("username", "N/A")
-        c_uid = contact.get("user_id", "N/A")
-        stats = cdata.get("security_stats", {})
-        threats = stats.get("threats_blocked", 0)
-        spams = stats.get("spams_blocked", 0)
-        reg_date = cdata.get("registered_date", "N/A")
-        act_date = cdata.get("activated_date", "N/A")
-
-        report += f"**{idx}. {gname}**\n"
-        report += f"   • 🆔 **Group ID:** `{cid}`\n"
-        report += f"   • 🔰 **ស្ថានភាពសេវា:** {status}\n"
-        report += f"   • 🛒 **កញ្ចប់ទិញ:** {plan_type}\n"
-        report += f"   • 👤 **អតិថិជន:** {c_name} ({c_uname})\n"
-        report += f"   • 🔢 **Customer ID:** `{c_uid}`\n"
-        report += f"   • 📅 **ថ្ងៃ Add ចូល:** `{reg_date}`\n"
-        report += f"   • ⚡ **ថ្ងៃបើកសិទ្ធិ:** `{act_date}`\n"
-        report += f"   • ⌛ **ថ្ងៃផុតកំណត់:** `{exp_date}`\n"
-        report += f"   • ⏳ **រយៈពេលនៅសល់:** {rem_str}\n"
-        report += f"   • 🛡️ **ស្ថិតិការពារជូន:** ☣️ `{threats}` មេរោគ | 🌊 `{spams}` Spams\n"
-        report += "────────────────────\n"
-
+    text = (
+        "📋 **[បញ្ជីឈ្មោះអតិថិជន CRM VAULT - DIRECTORY]** 📋\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 **ចំនួនអតិថិជនសរុប:** `{len(CLIENTS_DB)}` នាក់\n\n"
+        "👉 **សូមចុចលើឈ្មោះអតិថិជនខាងក្រោម ដើម្បីមើលព័ត៌មានលម្អិត៖**\n"
+        "━━━━━━━━━━━━━━━━━━━━"
+    )
     user_msg = update.effective_message if (update and update.effective_chat and update.effective_chat.type == "private") else None
     await send_clean_command_response(
         context,
         chat_id=target_id,
-        text=report,
-        reply_markup=get_master_owner_keyboard(),
+        text=text,
+        reply_markup=generate_clients_list_keyboard(),
         parse_mode=ParseMode.MARKDOWN,
         user_message=user_msg
     )
@@ -2144,7 +2149,75 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     if data == "dash_clients":
-        await list_groups_command(update, context, send_to_user_id=user.id)
+        if not CLIENTS_DB:
+            await query.answer("🗄️ មិនទាន់មានទិន្នន័យអតិថិជនក្នុងប្រព័ន្ធ CRM នៅឡើយទេ!", show_alert=True)
+            return
+        text = (
+            "📋 **[បញ្ជីឈ្មោះអតិថិជន CRM VAULT - DIRECTORY]** 📋\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 **ចំនួនអតិថិជនសរុប:** `{len(CLIENTS_DB)}` នាក់\n\n"
+            "👉 **សូមចុចលើឈ្មោះអតិថិជនខាងក្រោម ដើម្បីមើលព័ត៌មានលម្អិត៖**\n"
+            "━━━━━━━━━━━━━━━━━━━━"
+        )
+        await query.edit_message_text(text=text, reply_markup=generate_clients_list_keyboard(), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    if data.startswith("client_detail_"):
+        chat_id = data.replace("client_detail_", "")
+        cdata = CLIENTS_DB.get(str(chat_id), {})
+        if not cdata:
+            await query.answer("❌ រកមិនឃើញទិន្នន័យអតិថិជននេះទេ!", show_alert=True)
+            return
+
+        gname = cdata.get("client_group_name", f"Group {chat_id}")
+        status = cdata.get("license_status", "N/A")
+        plan_type = cdata.get("plan_type", "N/A")
+        is_life = cdata.get("is_lifetime", False)
+        exp_date = cdata.get("expiry_date", "N/A")
+        rem_str = get_remaining_time_str(exp_date, is_life)
+
+        contact = cdata.get("customer_contact", {})
+        c_name = contact.get("name", "N/A")
+        c_uname = contact.get("username", "N/A")
+        c_uid = contact.get("user_id", "N/A")
+        stats = cdata.get("security_stats", {})
+        threats = stats.get("threats_blocked", 0)
+        spams = stats.get("spams_blocked", 0)
+        reg_date = cdata.get("registered_date", "N/A")
+        act_date = cdata.get("activated_date", "N/A")
+
+        p_str = ""
+        for p in cdata.get("purchase_history", [])[-3:]:
+            p_str += f"  • {p.get('package')} ({p.get('purchased_date')})\n"
+        if not p_str:
+            p_str = "  • មិនទាន់មានប្រវត្តិទិញ\n"
+
+        detail_text = (
+            f"👤 **[ព័ត៌មានលម្អិតអតិថិជន - CLIENT PROFILE]** 👤\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"👤 **ឈ្មោះអតិថិជន:** **{c_name}** ({c_uname})\n"
+            f"🔢 **Customer User ID:** `{c_uid}`\n"
+            f"👥 **ក្រុម Telegram:** **{gname}**\n"
+            f"🆔 **លេខ Group ID:** `{chat_id}`\n\n"
+            f"🔰 **ស្ថានភាពសេវា:** {status}\n"
+            f"🛒 **កញ្ចប់ទិញ:** {plan_type}\n"
+            f"📅 **កាលបរិច្ឆេទ Add ចូល:** `{reg_date}`\n"
+            f"⚡ **កាលបរិច្ឆេទបើកសិទ្ធិ:** `{act_date}`\n"
+            f"⌛ **កាលបរិច្ឆេទផុតកំណត់:** `{exp_date}`\n"
+            f"⏳ **រយៈពេលនៅសល់:** {rem_str}\n"
+            f"🛡️ **ស្ថិតិការពារជូន:** ☣️ `{threats}` មេរោគ | 🌊 `{spams}` Spams\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📜 **ប្រវត្តិទិញបត (Purchase History)៖**\n{p_str}"
+            f"━━━━━━━━━━━━━━━━━━━━"
+        )
+        detail_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛠️ កំណត់សិទ្ធិក្រុមនេះ (Manage Group)", callback_data=f"manage_grp_{chat_id}")],
+            [
+                InlineKeyboardButton("📋 ត្រឡប់ទៅបញ្ជីអតិថិជន", callback_data="dash_clients"),
+                InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")
+            ]
+        ])
+        await query.edit_message_text(text=detail_text, reply_markup=detail_kb, parse_mode=ParseMode.MARKDOWN)
         return
 
     if data == "dash_logs":

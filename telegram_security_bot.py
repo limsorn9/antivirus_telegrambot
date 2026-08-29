@@ -82,6 +82,7 @@ for aid in raw_env_admins:
 # Official Marketing Channel របស់ម្ចាស់ Bot
 OFFICIAL_CHANNEL_USERNAME = "@sornsecurityrobot"
 OFFICIAL_CHANNEL_LINK = "https://t.me/sornsecurityrobot"
+BOT_USERNAME = os.getenv("BOT_USERNAME", "PPTC_bot").replace("@", "").strip()
 
 PUNISHMENT_MODE = os.getenv("PUNISHMENT_MODE", "MUTE").upper().strip()
 MUTE_DURATION_HOURS = int(os.getenv("MUTE_DURATION_HOURS", "24"))
@@ -1506,7 +1507,10 @@ def generate_master_dashboard_keyboard() -> InlineKeyboardMarkup:
             keyboard.append([InlineKeyboardButton(btn_text, callback_data=callback_data)])
 
     keyboard.append([
-        InlineKeyboardButton("➕ បន្ថែម Group តាម ID/Link", callback_data="dash_add_group"),
+        InlineKeyboardButton("➕ ចុចរើសក្រុមដើម្បីឱ្យ Bot ចូល", url=f"https://t.me/{BOT_USERNAME}?startgroup=admin&admin=delete_messages+restrict_members")
+    ])
+    keyboard.append([
+        InlineKeyboardButton("➕ បន្ថែមតាម ID/Link", callback_data="dash_add_group"),
         InlineKeyboardButton("🔄 Refresh បញ្ជី", callback_data="dash_refresh")
     ])
     keyboard.append([
@@ -1814,7 +1818,8 @@ async def prompt_select_group(context: ContextTypes.DEFAULT_TYPE, user_id: int, 
         "━━━━━━━━━━━━━━━━━━━━"
     )
     inline_kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ បន្ថែម Group តាម ID/Link", callback_data="dash_add_group")],
+        [InlineKeyboardButton("➕ ចុចរើសក្រុមដើម្បីឱ្យ Bot ចូល", url=f"https://t.me/{BOT_USERNAME}?startgroup=admin&admin=delete_messages+restrict_members")],
+        [InlineKeyboardButton("➕ បន្ថែមតាម ID/Link", callback_data="dash_add_group")],
         [InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")]
     ])
     await send_clean_command_response(

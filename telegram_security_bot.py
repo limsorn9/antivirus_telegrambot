@@ -141,10 +141,34 @@ def load_json_file(file_path: str, default_val: any) -> any:
     return default_val
 
 
+GLOBAL_BOT_INSTANCE = None
+_CLOUD_VAULT_SYNC_TASK = None
+
+async def _debounced_cloud_vault_sync():
+    try:
+        await asyncio.sleep(2)
+        if GLOBAL_BOT_INSTANCE:
+            await sync_telegram_cloud_vault(GLOBAL_BOT_INSTANCE)
+    except Exception as e:
+        logger.error(f"Error in debounced cloud vault sync: {e}")
+
+def schedule_cloud_vault_sync():
+    global _CLOUD_VAULT_SYNC_TASK
+    try:
+        loop = asyncio.get_running_loop()
+        if _CLOUD_VAULT_SYNC_TASK and not _CLOUD_VAULT_SYNC_TASK.done():
+            _CLOUD_VAULT_SYNC_TASK.cancel()
+        _CLOUD_VAULT_SYNC_TASK = loop.create_task(_debounced_cloud_vault_sync())
+    except Exception:
+        pass
+
+
 def save_json_file(file_path: str, data: any):
     try:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+        if file_path in [GROUPS_CONFIG_FILE, CLIENTS_DB_FILE]:
+            schedule_cloud_vault_sync()
         if GITHUB_TOKEN and file_path in [GROUPS_CONFIG_FILE, CLIENTS_DB_FILE]:
             try:
                 loop = asyncio.get_running_loop()
@@ -295,6 +319,88 @@ async def auto_backup_to_master_job(bot):
         )
     except Exception as e:
         logger.error(f"Auto-backup error: {e}")
+
+
+async def sync_telegram_cloud_vault(bot):
+    """
+    ស្វ័យប្រវត្តិកត់ត្រា និង Pin ហ្វាល់ Database ចូលក្នុង Private Chat របស់ Master Owner
+    ជាប្រព័ន្ធ Persistent Cloud Vault ដែលមិនបាត់បង់ទិន្នន័យទោះបី Render Restart / Redeploy ក៏ដោយ!
+    """
+    if not GROUPS_CONFIG and not CLIENTS_DB:
+        return
+    master_id = int(list(SUPER_ADMIN_IDS)[0]) if SUPER_ADMIN_IDS else None
+    if not master_id:
+        return
+
+    try:
+        backup_data = create_full_backup_data()
+        json_bytes = json.dumps(backup_data, indent=4, ensure_ascii=False).encode('utf-8')
+        doc = io.BytesIO(json_bytes)
+        doc.name = "telegram_cloud_vault.json"
+
+        # ពិនិត្យស្វែងរក pinned message ចាស់ដើម្បីសម្អាតកុំឱ្យស្ទះ Chat
+        old_pinned_mid = None
+        try:
+            chat = await bot.get_chat(chat_id=master_id)
+            if chat.pinned_message:
+                old_pinned_mid = chat.pinned_message.message_id
+        except Exception:
+            pass
+
+        caption = (
+            "🗄️ **[TELEGRAM PERSISTENT CLOUD VAULT]** 🗄️\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"📅 **ធ្វើបច្ចុប្បន្នភាព:** `{backup_data['timestamp']}`\n"
+            f"👥 **ក្រុមក្នុងបញ្ជី:** `{len(GROUPS_CONFIG)}` ក្រុម | 👤 **អតិថិជន:** `{len(CLIENTS_DB)}` នាក់\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🔒 *ប្រព័ន្ធរក្សាទុកទិន្នន័យអចិន្ត្រៃយ៍ ២៤/៧ (ការពារការបាត់ក្រុមនៅពេល Render Restart / Redeploy)*"
+        )
+        new_msg = await bot.send_document(
+            chat_id=master_id,
+            document=doc,
+            caption=caption,
+            disable_notification=True,
+            parse_mode=ParseMode.MARKDOWN
+        )
+
+        if new_msg:
+            try:
+                await bot.pin_chat_message(chat_id=master_id, message_id=new_msg.message_id, disable_notification=True)
+            except Exception:
+                pass
+            if old_pinned_mid and old_pinned_mid != new_msg.message_id:
+                try:
+                    await bot.delete_message(chat_id=master_id, message_id=old_pinned_mid)
+                except Exception:
+                    pass
+        logger.info(f"✅ [Cloud Vault] Synced {len(GROUPS_CONFIG)} groups into Telegram Cloud Vault!")
+    except Exception as e:
+        logger.error(f"⚠️ [Cloud Vault Sync Error]: {e}")
+
+
+async def restore_telegram_cloud_vault_on_startup(bot):
+    """
+    ទាញយកទិន្នន័យក្រុម និងអតិថិជនត្រឡប់មកវិញដោយស្វ័យប្រវត្តិចេញពី Telegram Cloud Vault
+    នៅពេល Bot ទើបតែ Restart ឬ Redeploy លើ Render
+    """
+    master_id = int(list(SUPER_ADMIN_IDS)[0]) if SUPER_ADMIN_IDS else None
+    if not master_id:
+        return
+
+    try:
+        chat = await bot.get_chat(chat_id=master_id)
+        if chat.pinned_message and chat.pinned_message.document:
+            doc = chat.pinned_message.document
+            if "vault" in (doc.file_name or "").lower():
+                tg_file = await doc.get_file()
+                buf = io.BytesIO()
+                await tg_file.download_to_memory(buf)
+                raw_json = buf.getvalue().decode('utf-8')
+                data = json.loads(raw_json)
+                g_rest, c_rest, l_rest = restore_from_backup_data(data)
+                logger.info(f"🚀 [Cloud Vault Auto-Restore] Successfully restored {g_rest} groups and {c_rest} clients on startup!")
+    except Exception as e:
+        logger.error(f"⚠️ [Cloud Vault Restore Error]: {e}")
 
 
 GROUPS_CONFIG = load_json_file(GROUPS_CONFIG_FILE, DEFAULT_GROUPS_VAULT)
@@ -990,6 +1096,15 @@ async def handle_anti_flood(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if not chat or not user or chat.type not in ["group", "supergroup"]:
         return False
 
+    chat_key = str(chat.id)
+    if chat_key in GROUPS_CONFIG:
+        cur_title = GROUPS_CONFIG[chat_key].get("title", "")
+        if chat.title and (not cur_title or cur_title != chat.title or cur_title.startswith("Group -")):
+            GROUPS_CONFIG[chat_key]["title"] = chat.title
+            if chat_key in CLIENTS_DB:
+                CLIENTS_DB[chat_key]["client_group_name"] = chat.title
+            save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
     if is_sole_master_owner(user.id) or await is_client_group_admin(update, context):
         return False
 
@@ -1074,9 +1189,17 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
             except Exception as e:
                 logger.error(f"Error restoring backup json in private chat: {e}")
 
-    if chat.type in ["group", "supergroup"] and chat_key not in GROUPS_CONFIG:
-        sync_client_record(chat, message.from_user, is_auth=False, is_enabled=False)
-        await notify_master_admin_new_group(context, chat, message.from_user)
+    if chat.type in ["group", "supergroup"]:
+        if chat_key not in GROUPS_CONFIG:
+            sync_client_record(chat, message.from_user, is_auth=False, is_enabled=False)
+            await notify_master_admin_new_group(context, chat, message.from_user)
+        else:
+            cur_title = GROUPS_CONFIG[chat_key].get("title", "")
+            if chat.title and (not cur_title or cur_title != chat.title or cur_title.startswith("Group -")):
+                GROUPS_CONFIG[chat_key]["title"] = chat.title
+                if chat_key in CLIENTS_DB:
+                    CLIENTS_DB[chat_key]["client_group_name"] = chat.title
+                save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
 
     if chat.type in ["group", "supergroup"]:
         if not is_group_authorized(chat.id):
@@ -1493,17 +1616,27 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
     is_admin = await is_client_group_admin(update, context)
 
     # ហៅ និងកត់ត្រាក្រុមដែល Bot កំពុងនៅស្រាប់ ចូលក្នុងបញ្ជីដោយស្វ័យប្រវត្តិ
-    if chat.type in ["group", "supergroup"] and str(chat.id) not in GROUPS_CONFIG:
-        if is_owner:
-            sync_client_record(chat, user, is_auth=True, is_enabled=True, plan_days=7)
-            await context.bot.send_message(
-                chat_id=user.id,
-                text=f"✅ **[បានទាញក្រុមចូលបញ្ជីស្វ័យប្រវត្តិ]**\n\n👥 ក្រុម៖ **{chat.title}** (`{chat.id}`)\n🛒 បានបើកសិទ្ធិការពារ ៧ ថ្ងៃ (Trial 7 Days) ដោយជោគជ័យ!",
-                parse_mode=ParseMode.MARKDOWN
-            )
+    if chat.type in ["group", "supergroup"]:
+        chat_key = str(chat.id)
+        if chat_key not in GROUPS_CONFIG:
+            if is_owner:
+                sync_client_record(chat, user, is_auth=True, is_enabled=True, plan_days=7)
+                await context.bot.send_message(
+                    chat_id=user.id,
+                    text=f"✅ **[បានទាញក្រុមចូលបញ្ជីស្វ័យប្រវត្តិ]**\n\n👥 ក្រុម៖ **{chat.title}** (`{chat.id}`)\n🛒 បានបើកសិទ្ធិការពារ ៧ ថ្ងៃ (Trial 7 Days) ដោយជោគជ័យ!",
+                    parse_mode=ParseMode.MARKDOWN
+                )
+            else:
+                sync_client_record(chat, user, is_auth=False, is_enabled=False)
+                await notify_master_admin_new_group(context, chat, user)
         else:
-            sync_client_record(chat, user, is_auth=False, is_enabled=False)
-            await notify_master_admin_new_group(context, chat, user)
+            # បើក្រុមមានក្នុងបញ្ជីស្រាប់ តែបាត់ឈ្មោះ ឬឈ្មោះជា Group -100... ត្រូវ update ឈ្មោះពិតភ្លាម
+            cur_title = GROUPS_CONFIG[chat_key].get("title", "")
+            if chat.title and (not cur_title or cur_title != chat.title or cur_title.startswith("Group -")):
+                GROUPS_CONFIG[chat_key]["title"] = chat.title
+                if chat_key in CLIENTS_DB:
+                    CLIENTS_DB[chat_key]["client_group_name"] = chat.title
+                save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
 
     if await handle_anti_flood(update, context):
         return
@@ -1925,6 +2058,7 @@ def generate_master_dashboard_keyboard() -> InlineKeyboardMarkup:
     keyboard = []
     if not GROUPS_CONFIG:
         keyboard.append([InlineKeyboardButton("❌ មិនទាន់មាន Group ណាភ្ជាប់នៅឡើយទេ", callback_data="none")])
+        keyboard.append([InlineKeyboardButton("📥 ទាញយកទិន្នន័យពី Cloud Vault មកវិញ", callback_data="dash_cloud_restore")])
     else:
         for chat_id, data in GROUPS_CONFIG.items():
             title = data.get("title", f"Group {chat_id}")
@@ -1992,6 +2126,7 @@ def generate_clients_list_keyboard() -> InlineKeyboardMarkup:
     keyboard = []
     if not CLIENTS_DB:
         keyboard.append([InlineKeyboardButton("❌ មិនទាន់មានទិន្នន័យអតិថិជននៅឡើយទេ", callback_data="none")])
+        keyboard.append([InlineKeyboardButton("📥 ទាញយកទិន្នន័យពី Cloud Vault មកវិញ", callback_data="dash_cloud_restore")])
     else:
         for cid, cdata in CLIENTS_DB.items():
             contact = cdata.get("customer_contact", {})
@@ -2590,7 +2725,11 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
     data = query.data
 
     # 1. Main Navigation Callbacks
-    if data == "dash_refresh":
+    if data in ["dash_refresh", "dash_cloud_restore"]:
+        if not GROUPS_CONFIG or data == "dash_cloud_restore":
+            await restore_telegram_cloud_vault_on_startup(context.bot)
+            if data == "dash_cloud_restore":
+                await query.answer(f"✅ បាន Restore ក្រុម {len(GROUPS_CONFIG)} និងអតិថិជន {len(CLIENTS_DB)} ពី Cloud Vault រួចរាល់!", show_alert=True)
         await query.edit_message_reply_markup(reply_markup=generate_master_dashboard_keyboard())
         return
 
@@ -2642,6 +2781,8 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     if data == "dash_clients":
+        if not CLIENTS_DB:
+            await restore_telegram_cloud_vault_on_startup(context.bot)
         if not CLIENTS_DB:
             await query.answer("🗄️ មិនទាន់មានទិន្នន័យអតិថិជនក្នុងប្រព័ន្ធ CRM នៅឡើយទេ!", show_alert=True)
             return
@@ -2974,10 +3115,13 @@ async def start_web_health_server():
 
 
 async def post_init(application):
+    global GLOBAL_BOT_INSTANCE
+    GLOBAL_BOT_INSTANCE = application.bot
     asyncio.create_task(start_web_health_server())
     asyncio.create_task(daily_reminder_loop(application))
     asyncio.create_task(bot_message_sweeper_loop(application))
     asyncio.create_task(pull_github_vault_on_startup())
+    asyncio.create_task(restore_telegram_cloud_vault_on_startup(application.bot))
     try:
         # ១. Commands សម្រាប់ Group Admins ក្នុងក្រុមនីមួយៗ (មានសិទ្ធិតែ /status ប៉ុណ្ណោះ តាមការកំណត់)
         group_admin_commands = [

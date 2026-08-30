@@ -586,6 +586,21 @@ async def send_clean_command_response(
         except Exception:
             pass
 
+    # ២.១. ដក និងសម្អាតប៊ូតុងខាងក្រោមឆាត (ReplyKeyboardMarkup) ចេញពីឧបករណ៍ User ឱ្យបាន ១០០%
+    if chat_id > 0:
+        if isinstance(reply_markup, InlineKeyboardMarkup):
+            try:
+                rm_msg = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="🧹",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                await rm_msg.delete()
+            except Exception:
+                pass
+        elif reply_markup is None:
+            reply_markup = ReplyKeyboardRemove()
+
     # ៣. ផ្ញើសារឆ្លើយតបថ្មី
     sent_msg = None
     try:
@@ -1383,6 +1398,32 @@ async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_clean_command_response(context, chat_id=msg.chat_id, text=help_text, reply_markup=generate_master_dashboard_keyboard(), parse_mode=ParseMode.MARKDOWN, user_message=msg)
 
 
+async def clean_keyboard_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    លុប និងដកប៊ូតុងខាងក្រោមឆាត (ReplyKeyboardMarkup) ចេញពី Telegram Client
+    """
+    chat = update.effective_chat
+    if update.effective_message:
+        try:
+            await update.effective_message.delete()
+        except Exception:
+            pass
+
+    confirm_msg = (
+        "🧹 **[បានសម្អាត និងលុបប៊ូតុងក្រោមឆាតជោគជ័យ]** 🧹\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ ប៊ូតុងខាងក្រោមឆាតចាស់ៗទាំងអស់ត្រូវបានដកចេញពីអេក្រង់របស់អ្នក ១០០%!\n"
+        "👉 សូមប្រើប្រាស់តែប៊ូតុង **[≡ Menu]** (ខាងឆ្វេងដៃក្រោម) ឬចុចលើ Inline Buttons ក្នុងសារវិញ។"
+    )
+    msg = await context.bot.send_message(
+        chat_id=chat.id,
+        text=confirm_msg,
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode=ParseMode.MARKDOWN
+    )
+    asyncio.create_task(delete_message_after_delay(context.bot, chat.id, msg.message_id, 10))
+
+
 # ==================== 📢 BROADCAST TO OFFICIAL CHANNEL ====================
 
 async def broadcast_to_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1490,12 +1531,7 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
             elif text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
                 await start_command(update, context)
             elif text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
-                await context.bot.send_message(
-                    chat_id=user.id,
-                    text="⚙️ **[ផ្ទាំងគ្រប់គ្រង MASTER BOT DASHBOARD]** ⚙️\n\n👑 **សូមស្វាគមន៍ម្ចាស់ Bot**\n👇 សូមចុចលើឈ្មោះ Group ដើម្បីមើលព័ត៌មានលម្អិត ឬកំណត់សិទ្ធិ/បន្ថែមថ្ងៃ៖",
-                    reply_markup=generate_master_dashboard_keyboard(),
-                    parse_mode=ParseMode.MARKDOWN
-                )
+                await admin_command(update, context)
             elif text in ["📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients"]:
                 await list_groups_command(update, context, send_to_user_id=user.id)
             elif text in ["📜 ប្រវត្តិការពារ & ការទិញបត", "📜 ប្រវត្តិការពារ (Logs)", "/logs"]:
@@ -1576,6 +1612,8 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
                 return
             WAITING_FOR_GROUP_ID.pop(user.id, None)
             await process_manual_add_group(context, user.id, text, user_message=update.effective_message)
+        if any(w in text.lower() for w in ["លុបប៊ូតុង", "remove keyboard", "clear button", "/clean"]):
+            await clean_keyboard_command(update, context)
             return
 
         if text in ["👥 ចុចរើសក្រុម (Select Group)", "👥 ចុចរើសក្រុម"]:
@@ -2954,6 +2992,7 @@ async def post_init(application):
             BotCommand("scan", "🔍 ស្កេនមេរោគលើសារចាស់ (Reply /scan)"),
             BotCommand("backup", "💾 ទាញយក Backup ទិន្នន័យ (.json)"),
             BotCommand("restore", "📥 Restore ទិន្នន័យពីហ្វាល់ Backup"),
+            BotCommand("clean", "🧹 លុបប៊ូតុងខាងក្រោមឆាតចេញ"),
             BotCommand("logs", "📜 កំណត់ត្រាសុវត្ថិភាព (Logs)"),
             BotCommand("status", "🛡️ ឆែកស្ថានភាពប្រព័ន្ធការពារ"),
             BotCommand("broadcast", "📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
@@ -2998,6 +3037,8 @@ def main():
     app.add_handler(CommandHandler("scan", scan_command))
     app.add_handler(CommandHandler("backup", backup_command))
     app.add_handler(CommandHandler("restore", restore_command))
+    app.add_handler(CommandHandler("clean", clean_keyboard_command))
+    app.add_handler(CommandHandler("cleankeyboard", clean_keyboard_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("check", status_command))
     app.add_handler(CommandHandler("leave", leave_command))

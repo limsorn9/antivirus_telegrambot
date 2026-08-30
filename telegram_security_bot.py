@@ -692,15 +692,19 @@ async def send_clean_command_response(
         except Exception:
             pass
 
-    # ២.១. ដក និងសម្អាតប៊ូតុងខាងក្រោមឆាត (ReplyKeyboardMarkup) ចេញពីឧបករណ៍ User ឱ្យបាន ១០០%
+    # ២.១. ដក និងសម្អាតប៊ូតុងខាងក្រោមឆាត (ReplyKeyboardMarkup) ចេញពីឧបករណ៍ User ឱ្យបាន ១០០% (ពិសេសលើ Telegram Desktop)
     final_markup = reply_markup
     if chat_id > 0:
         if isinstance(reply_markup, InlineKeyboardMarkup):
             try:
-                final_markup = reply_markup.to_dict()
-                final_markup["remove_keyboard"] = True
+                rm_msg = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="🧹",
+                    reply_markup=ReplyKeyboardRemove()
+                )
+                asyncio.create_task(delete_message_after_delay(context.bot, chat_id, rm_msg.message_id, 2))
             except Exception:
-                final_markup = reply_markup
+                pass
         elif reply_markup is None:
             final_markup = ReplyKeyboardRemove()
 

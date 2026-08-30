@@ -36,6 +36,7 @@ if sys.platform == "win32":
 import re
 import io
 import json
+import base64
 import time
 import asyncio
 import hashlib
@@ -83,6 +84,9 @@ for aid in raw_env_admins:
 OFFICIAL_CHANNEL_USERNAME = "@sornsecurityrobot"
 OFFICIAL_CHANNEL_LINK = "https://t.me/sornsecurityrobot"
 BOT_USERNAME = os.getenv("BOT_USERNAME", "PPTC_bot").replace("@", "").strip()
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
+GITHUB_REPO = os.getenv("GITHUB_REPO", "limsorn9/antivirus_telegrambot").strip()
+LAST_AUTO_BACKUP_TIME = 0
 
 PUNISHMENT_MODE = os.getenv("PUNISHMENT_MODE", "MUTE").upper().strip()
 MUTE_DURATION_HOURS = int(os.getenv("MUTE_DURATION_HOURS", "24"))
@@ -140,8 +144,156 @@ def save_json_file(file_path: str, data: any):
     try:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+        if GITHUB_TOKEN and file_path in [GROUPS_CONFIG_FILE, CLIENTS_DB_FILE]:
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(sync_github_file(file_path, data))
+            except Exception:
+                pass
     except Exception as e:
         logger.error(f"Error saving {file_path}: {e}")
+
+
+def create_full_backup_data() -> dict:
+    return {
+        "version": "1.0",
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "bot_username": BOT_USERNAME,
+        "groups_config": GROUPS_CONFIG,
+        "clients_database": CLIENTS_DB,
+        "security_audit_logs": AUDIT_LOGS
+    }
+
+
+def restore_from_backup_data(data: dict) -> tuple[int, int, int]:
+    groups_restored = 0
+    clients_restored = 0
+    logs_restored = 0
+
+    if "groups_config" in data and isinstance(data["groups_config"], dict):
+        GROUPS_CONFIG.update(data["groups_config"])
+        save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+        groups_restored = len(data["groups_config"])
+
+    if "clients_database" in data and isinstance(data["clients_database"], dict):
+        CLIENTS_DB.update(data["clients_database"])
+        save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
+        clients_restored = len(data["clients_database"])
+
+    if "security_audit_logs" in data and isinstance(data["security_audit_logs"], list):
+        AUDIT_LOGS.clear()
+        AUDIT_LOGS.extend(data["security_audit_logs"])
+        save_json_file(AUDIT_LOG_FILE, AUDIT_LOGS)
+        logs_restored = len(data["security_audit_logs"])
+
+    return groups_restored, clients_restored, logs_restored
+
+
+async def sync_github_file(filename: str, content_dict: any):
+    """
+    ស្វ័យប្រវត្តិ Push ទិន្នន័យទៅ GitHub Repository ប្រសិនបើមាន GITHUB_TOKEN
+    ដើម្បីការពារការបាត់បង់ទិន្នន័យនៅពេល Render Redeploy
+    """
+    if not GITHUB_TOKEN:
+        return
+    try:
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{filename}"
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        json_str = json.dumps(content_dict, indent=4, ensure_ascii=False)
+        content_b64 = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
+
+        sha = None
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    resp_data = await resp.json()
+                    sha = resp_data.get("sha")
+
+            payload = {
+                "message": f"Auto-sync database vault: {filename}",
+                "content": content_b64
+            }
+            if sha:
+                payload["sha"] = sha
+
+            async with session.put(url, headers=headers, json=payload) as put_resp:
+                if put_resp.status in [200, 201]:
+                    logger.info(f"✅ [GitHub Sync] Successfully synced {filename} to GitHub!")
+                else:
+                    err_txt = await put_resp.text()
+                    logger.error(f"⚠️ [GitHub Sync] Failed to sync {filename}: {err_txt}")
+    except Exception as e:
+        logger.error(f"⚠️ [GitHub Sync Exception] {filename}: {e}")
+
+
+async def pull_github_vault_on_startup():
+    """
+    ទាញយកទិន្នន័យចុងក្រោយពី GitHub នៅពេល Bot ចាប់ផ្ដើមដំណើរការ (Startup)
+    """
+    if not GITHUB_TOKEN:
+        return
+    try:
+        headers = {
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        async with aiohttp.ClientSession() as session:
+            for fname, target_dict in [
+                (GROUPS_CONFIG_FILE, GROUPS_CONFIG),
+                (CLIENTS_DB_FILE, CLIENTS_DB)
+            ]:
+                url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{fname}"
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        raw_content = base64.b64decode(data.get("content", "")).decode("utf-8")
+                        parsed = json.loads(raw_content)
+                        if isinstance(parsed, dict) and parsed:
+                            target_dict.update(parsed)
+                            save_json_file(fname, target_dict)
+                            logger.info(f"✅ [GitHub Pull] Successfully loaded {len(parsed)} records from GitHub into {fname}!")
+    except Exception as e:
+        logger.error(f"⚠️ [GitHub Pull Exception]: {e}")
+
+
+async def auto_backup_to_master_job(bot):
+    global LAST_AUTO_BACKUP_TIME
+    try:
+        now_ts = time.time()
+        if now_ts - LAST_AUTO_BACKUP_TIME < 60:
+            return
+        if not GROUPS_CONFIG and not CLIENTS_DB:
+            return
+
+        LAST_AUTO_BACKUP_TIME = now_ts
+        master_id = int(list(SUPER_ADMIN_IDS)[0]) if SUPER_ADMIN_IDS else None
+        if not master_id:
+            return
+
+        backup_data = create_full_backup_data()
+        json_bytes = json.dumps(backup_data, indent=4, ensure_ascii=False).encode('utf-8')
+        file_stream = io.BytesIO(json_bytes)
+        file_stream.name = f"vault_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+        caption = (
+            "💾 **[ស្វ័យប្រវត្តិកត់ត្រា DATA VAULT AUTO-BACKUP]** 💾\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"📅 **កាលបរិច្ឆេទ:** `{backup_data['timestamp']}`\n"
+            f"👥 **ចំនួនក្រុម:** `{len(GROUPS_CONFIG)}` ក្រុម | 👤 **អតិថិជន:** `{len(CLIENTS_DB)}` នាក់\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "💡 *ទិន្នន័យត្រូវបានកត់ត្រាទុកដោយស្វ័យប្រវត្តិ! ប្រសិនបើមានការ Update កូដថ្មី លោកអ្នកគ្រាន់តែ Forward ហ្វាល់នេះមកកាន់ Bot វិញ នោះទិន្នន័យនឹងត្រូវ Restore ១០០%!*"
+        )
+        await bot.send_document(
+            chat_id=master_id,
+            document=file_stream,
+            caption=caption,
+            parse_mode=ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logger.error(f"Auto-backup error: {e}")
 
 
 GROUPS_CONFIG = load_json_file(GROUPS_CONFIG_FILE, DEFAULT_GROUPS_VAULT)
@@ -878,6 +1030,38 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
     chat = update.effective_chat
     chat_key = str(chat.id)
 
+    # ករណី Master Super Admin ផ្ញើ ឬ Forward ហ្វាល់ Backup (.json) មកកាន់ Bot ក្នុង Private Chat -> ស្វ័យប្រវត្តិ RESTORE!
+    if chat.type == "private" and is_sole_master_owner(message.from_user.id):
+        file_name = message.document.file_name or ""
+        if file_name.endswith(".json"):
+            try:
+                tg_file = await message.document.get_file()
+                file_stream = io.BytesIO()
+                await tg_file.download_to_memory(file_stream)
+                data = json.loads(file_stream.getvalue().decode('utf-8'))
+                if isinstance(data, dict) and ("groups_config" in data or "clients_database" in data):
+                    g_count, c_count, l_count = restore_from_backup_data(data)
+                    res_text = (
+                        "🎉 **[ទាញយកទិន្នន័យត្រឡប់មកវិញជោគជ័យ - RESTORE COMPLETE]** 🎉\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        f"✅ បាន Restore ក្រុមចំនួន `{g_count}` ក្រុម\n"
+                        f"✅ បាន Restore អតិថិជនចំនួន `{c_count}` នាក់\n"
+                        f"✅ បាន Restore កំណត់ត្រា `{l_count}` Logs\n"
+                        "━━━━━━━━━━━━━━━━━━━━\n"
+                        "🛡️ ទិន្នន័យអតិថិជន និងក្រុមទាំងអស់ត្រូវបានការពារគង់វង្ស និងដំណើរការបន្តជាធម្មតា!"
+                    )
+                    await send_clean_command_response(
+                        context,
+                        chat_id=chat.id,
+                        text=res_text,
+                        reply_markup=generate_master_dashboard_keyboard(),
+                        parse_mode=ParseMode.MARKDOWN,
+                        user_message=message
+                    )
+                    return
+            except Exception as e:
+                logger.error(f"Error restoring backup json in private chat: {e}")
+
     if chat.type in ["group", "supergroup"] and chat_key not in GROUPS_CONFIG:
         sync_client_record(chat, message.from_user, is_auth=False, is_enabled=False)
         await notify_master_admin_new_group(context, chat, message.from_user)
@@ -1119,6 +1303,84 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
     )
     await send_auto_delete_message(context, chat.id, clean_text, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+
+
+# ==================== 💾 DATA VAULT BACKUP & RESTORE COMMANDS ====================
+
+async def backup_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ទាញយកហ្វាល់ Backup ទិន្នន័យអតិថិជន និងក្រុមទាំងអស់ (.json)
+    """
+    user = update.effective_user
+    if not is_sole_master_owner(user.id):
+        return
+
+    chat_id = update.effective_chat.id
+    backup_data = create_full_backup_data()
+    json_bytes = json.dumps(backup_data, indent=4, ensure_ascii=False).encode('utf-8')
+    file_stream = io.BytesIO(json_bytes)
+    file_stream.name = f"vault_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+    caption = (
+        "💾 **[ទិន្នន័យបម្រុងទុក - FULL DATA VAULT BACKUP]** 💾\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"📅 **កាលបរិច្ឆេទ:** `{backup_data['timestamp']}`\n"
+        f"👥 **ចំនួនក្រុម:** `{len(GROUPS_CONFIG)}` ក្រុម\n"
+        f"👤 **ចំនួនអតិថិជន CRM:** `{len(CLIENTS_DB)}` នាក់\n"
+        f"📜 **កំណត់ត្រា Logs:** `{len(AUDIT_LOGS)}` ករណី\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 **របៀប Restore:** ប្រសិនបើ Server ត្រូវបានដូរកូដ ឬ Restart លោកអ្នកគ្រាន់តែ **Forward ហ្វាល់នេះមកកាន់ Bot វិញ** នោះទិន្នន័យនឹងត្រូវ Restore ត្រឡប់មកវិញភ្លាមៗ ១០០%!"
+    )
+    await context.bot.send_document(
+        chat_id=chat_id,
+        document=file_stream,
+        caption=caption,
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+
+async def restore_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ណែនាំ និង Restore ទិន្នន័យពីហ្វាល់ Backup (.json)
+    """
+    user = update.effective_user
+    if not is_sole_master_owner(user.id):
+        return
+
+    msg = update.effective_message
+    if msg and msg.reply_to_message and msg.reply_to_message.document:
+        doc = msg.reply_to_message.document
+        if doc.file_name and doc.file_name.endswith(".json"):
+            tg_file = await doc.get_file()
+            file_stream = io.BytesIO()
+            await tg_file.download_to_memory(file_stream)
+            try:
+                data = json.loads(file_stream.getvalue().decode('utf-8'))
+                g_count, c_count, l_count = restore_from_backup_data(data)
+                res_text = (
+                    "🎉 **[ទាញយកទិន្នន័យជោគជ័យ - RESTORE COMPLETE]** 🎉\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    f"✅ បាន Restore ក្រុមចំនួន `{g_count}` ក្រុម\n"
+                    f"✅ បាន Restore អតិថិជនចំនួន `{c_count}` នាក់\n"
+                    f"✅ បាន Restore កំណត់ត្រា `{l_count}` Logs\n"
+                    "━━━━━━━━━━━━━━━━━━━━\n"
+                    "🛡️ ទិន្នន័យទាំងអស់ត្រូវបានការពារគង់វង្ស និងដំណើរការបន្តជាធម្មតា!"
+                )
+                await send_clean_command_response(context, chat_id=msg.chat_id, text=res_text, reply_markup=generate_master_dashboard_keyboard(), parse_mode=ParseMode.MARKDOWN, user_message=msg)
+                return
+            except Exception as e:
+                await send_clean_command_response(context, chat_id=msg.chat_id, text=f"❌ មិនអាចអានហ្វាល់ Backup នេះបានទេ: {e}", parse_mode=ParseMode.MARKDOWN, user_message=msg)
+                return
+
+    help_text = (
+        "📥 **[វិធីសាស្រ្ត RESTORE ទិន្នន័យអតិថិជន & ក្រុម]** 📥\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "👉 **ងាយស្រួលបំផុត (ត្រឹមតែ ១ ជំហាន):**\n"
+        "លោកអ្នកគ្រាន់តែ **Forward ហ្វាល់ `vault_backup_...json`** ដែល Bot ធ្លាប់បានផ្ញើជូន មកកាន់ Bot ក្នុង Chat នេះផ្ទាល់ នោះ Bot នឹង Restore ទិន្នន័យអតិថិជនទាំងអស់ត្រឡប់មកវិញភ្លាមៗ ១០០%!\n\n"
+        "👉 **ឬចុច Reply លើហ្វាល់ Backup នោះ រួចវាយពាក្យ `/restore`**\n"
+        "━━━━━━━━━━━━━━━━━━━━"
+    )
+    await send_clean_command_response(context, chat_id=msg.chat_id, text=help_text, reply_markup=generate_master_dashboard_keyboard(), parse_mode=ParseMode.MARKDOWN, user_message=msg)
 
 
 # ==================== 📢 BROADCAST TO OFFICIAL CHANNEL ====================
@@ -1659,7 +1921,10 @@ def generate_master_dashboard_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton("📜 កំណត់ត្រា Logs", callback_data="dash_logs")
     ])
     keyboard.append([
-        InlineKeyboardButton("📢 ផ្សាយទៅ Channel", callback_data="dash_broadcast"),
+        InlineKeyboardButton("💾 ទាញយក Backup (.json)", callback_data="dash_backup"),
+        InlineKeyboardButton("📢 ផ្សាយទៅ Channel", callback_data="dash_broadcast")
+    ])
+    keyboard.append([
         InlineKeyboardButton("🚪 បញ្ជាឱ្យ Bot ចេញពីក្រុម", callback_data="dash_leave_list")
     ])
     return InlineKeyboardMarkup(keyboard)
@@ -2206,6 +2471,55 @@ async def sync_group_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await prompt_add_group(context, user.id, user_message=update.effective_message)
 
 
+async def render_group_control_panel(query, chat_id: str):
+    """
+    បង្ហាញផ្ទាំងគ្រប់គ្រង Profile របស់ Group និងប៊ូតុងកំណត់សិទ្ធិ
+    """
+    gdata = GROUPS_CONFIG.get(str(chat_id), {})
+    cdata = CLIENTS_DB.get(str(chat_id), {})
+
+    title = gdata.get("title") or cdata.get("client_group_name") or f"Group {chat_id}"
+    is_auth = gdata.get("is_authorized", False)
+    is_en = gdata.get("is_enabled", False)
+    is_life = gdata.get("is_lifetime", False)
+    plan_type = gdata.get("plan_type", "Trial")
+    act_date = gdata.get("activated_date", "Not Yet Activated")
+    exp_date = gdata.get("expiry_date", "Not Yet Activated")
+    rem_str = get_remaining_time_str(exp_date, is_life)
+
+    status_kh = "🟢 ACTIVE (កំពុងការពារ)" if (is_auth and is_en) else ("🟡 PAUSED (បានផ្អាក)" if is_auth else "🔴 UNAUTHORIZED (មិនទាន់ទិញ)")
+    threats = gdata.get("threats_blocked_count", 0)
+    c_contact = cdata.get("customer_contact", {})
+
+    # រៀបចំ Purchase History
+    p_history_str = ""
+    for p in cdata.get("purchase_history", [])[-2:]:
+        p_history_str += f"  • {p.get('package')} ({p.get('purchased_date')})\n"
+    if not p_history_str:
+        p_history_str = "  • មិនទាន់មានប្រវត្តិទិញ\n"
+
+    detail_text = (
+        f"🛠️ **[ផ្ទាំងគ្រប់គ្រងក្រុម - GROUP CONTROL PANEL]**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 **ឈ្មោះក្រុម:** `{title}`\n"
+        f"🆔 **លេខ Group ID:** `{chat_id}`\n"
+        f"👤 **អតិថិជន:** {c_contact.get('name', 'N/A')} ({c_contact.get('username', 'N/A')})\n"
+        f"🔢 **Customer ID:** `{c_contact.get('user_id', 'N/A')}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔰 **ស្ថានភាពបច្ចុប្បន្ន:** {status_kh}\n"
+        f"🛒 **កញ្ចប់សេវាកម្ម:** {plan_type}\n"
+        f"📅 **ថ្ងៃចាប់ផ្ដើមទិញបត:** `{act_date}`\n"
+        f"⌛ **ថ្ងៃផុតកំណត់:** `{exp_date}`\n"
+        f"⏳ **រយៈពេលនៅសល់:** {rem_str}\n"
+        f"☣️ **មេរោគដែលបានទប់ស្កាត់:** `{threats}` ករណី\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📜 **ប្រវត្តិទិញបត (Purchase History)៖**\n{p_history_str}"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👉 **សូមចុចប៊ូតុងខាងក្រោមដើម្បីកំណត់សិទ្ធិ ឬបន្ថែមថ្ងៃប្រើប្រាស់៖**"
+    )
+    await query.edit_message_text(text=detail_text, reply_markup=generate_group_detail_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
+
+
 # ==================== INLINE CALLBACK ROUTER ====================
 
 async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2374,54 +2688,9 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         await broadcast_to_channel_command(update, context)
         return
 
-async def render_group_control_panel(query, chat_id: str):
-    """
-    បង្ហាញផ្ទាំងគ្រប់គ្រង Profile របស់ Group និងប៊ូតុងកំណត់សិទ្ធិ
-    """
-    gdata = GROUPS_CONFIG.get(str(chat_id), {})
-    cdata = CLIENTS_DB.get(str(chat_id), {})
-
-    title = gdata.get("title") or cdata.get("client_group_name") or f"Group {chat_id}"
-    is_auth = gdata.get("is_authorized", False)
-    is_en = gdata.get("is_enabled", False)
-    is_life = gdata.get("is_lifetime", False)
-    plan_type = gdata.get("plan_type", "Trial")
-    act_date = gdata.get("activated_date", "Not Yet Activated")
-    exp_date = gdata.get("expiry_date", "Not Yet Activated")
-    rem_str = get_remaining_time_str(exp_date, is_life)
-
-    status_kh = "🟢 ACTIVE (កំពុងការពារ)" if (is_auth and is_en) else ("🟡 PAUSED (បានផ្អាក)" if is_auth else "🔴 UNAUTHORIZED (មិនទាន់ទិញ)")
-    threats = gdata.get("threats_blocked_count", 0)
-    c_contact = cdata.get("customer_contact", {})
-
-    # រៀបចំ Purchase History
-    p_history_str = ""
-    for p in cdata.get("purchase_history", [])[-2:]:
-        p_history_str += f"  • {p.get('package')} ({p.get('purchased_date')})\n"
-    if not p_history_str:
-        p_history_str = "  • មិនទាន់មានប្រវត្តិទិញ\n"
-
-    detail_text = (
-        f"🛠️ **[ផ្ទាំងគ្រប់គ្រងក្រុម - GROUP CONTROL PANEL]**\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 **ឈ្មោះក្រុម:** `{title}`\n"
-        f"🆔 **លេខ Group ID:** `{chat_id}`\n"
-        f"👤 **អតិថិជន:** {c_contact.get('name', 'N/A')} ({c_contact.get('username', 'N/A')})\n"
-        f"🔢 **Customer ID:** `{c_contact.get('user_id', 'N/A')}`\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"🔰 **ស្ថានភាពបច្ចុប្បន្ន:** {status_kh}\n"
-        f"🛒 **កញ្ចប់សេវាកម្ម:** {plan_type}\n"
-        f"📅 **ថ្ងៃចាប់ផ្ដើមទិញបត:** `{act_date}`\n"
-        f"⌛ **ថ្ងៃផុតកំណត់:** `{exp_date}`\n"
-        f"⏳ **រយៈពេលនៅសល់:** {rem_str}\n"
-        f"☣️ **មេរោគដែលបានទប់ស្កាត់:** `{threats}` ករណី\n"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📜 **ប្រវត្តិទិញបត (Purchase History)៖**\n{p_history_str}"
-        f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"👉 **សូមចុចប៊ូតុងខាងក្រោមដើម្បីកំណត់សិទ្ធិ ឬបន្ថែមថ្ងៃប្រើប្រាស់៖**"
-    )
-    await query.edit_message_text(text=detail_text, reply_markup=generate_group_detail_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
-
+    if data == "dash_backup":
+        await backup_command(update, context)
+        return
 
     # 2. Drill-Down: Manage Specific Group Profile
     if data.startswith("manage_grp_"):
@@ -2675,6 +2944,7 @@ async def post_init(application):
     asyncio.create_task(start_web_health_server())
     asyncio.create_task(daily_reminder_loop(application))
     asyncio.create_task(bot_message_sweeper_loop(application))
+    asyncio.create_task(pull_github_vault_on_startup())
     try:
         commands = [
             BotCommand("admin", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
@@ -2682,6 +2952,8 @@ async def post_init(application):
             BotCommand("addgroup", "➕ បន្ថែម ឬហៅក្រុមចាស់ចូលបញ្ជី"),
             BotCommand("sync", "🔄 ហៅ/ទាញក្រុមចូលបញ្ជី"),
             BotCommand("scan", "🔍 ស្កេនមេរោគលើសារចាស់ (Reply /scan)"),
+            BotCommand("backup", "💾 ទាញយក Backup ទិន្នន័យ (.json)"),
+            BotCommand("restore", "📥 Restore ទិន្នន័យពីហ្វាល់ Backup"),
             BotCommand("logs", "📜 កំណត់ត្រាសុវត្ថិភាព (Logs)"),
             BotCommand("status", "🛡️ ឆែកស្ថានភាពប្រព័ន្ធការពារ"),
             BotCommand("broadcast", "📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
@@ -2724,6 +2996,8 @@ def main():
     app.add_handler(CommandHandler("addgroup", addgroup_command))
     app.add_handler(CommandHandler("sync", sync_group_command))
     app.add_handler(CommandHandler("scan", scan_command))
+    app.add_handler(CommandHandler("backup", backup_command))
+    app.add_handler(CommandHandler("restore", restore_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("check", status_command))
     app.add_handler(CommandHandler("leave", leave_command))

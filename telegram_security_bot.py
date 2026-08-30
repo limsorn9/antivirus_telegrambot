@@ -767,19 +767,94 @@ async def bot_message_sweeper_loop(application):
         await asyncio.sleep(5)
 
 
-# ==================== 📢 TWICE-DAILY REMINDER BACKGROUND JOB ====================
+# ==================== 📢 TWICE-DAILY REMINDER BACKGROUND JOB & ADMIN PROMOTION ALERTS ====================
+
+async def send_admin_promotion_reminder_to_group(context_or_bot, chat_id: int) -> tuple[bool, str]:
+    """
+    ផ្ញើសារដាស់តឿនបន្ទាន់ទៅកាន់ Group ដែលមិនទាន់ Promote Bot ជា Administrator
+    ត្រឡប់មកវិញ (is_sent, status_message)
+    """
+    bot = getattr(context_or_bot, "bot", context_or_bot)
+    try:
+        member = await bot.get_chat_member(chat_id=chat_id, user_id=bot.id)
+        is_admin = member.status == "administrator"
+        can_delete = getattr(member, 'can_delete_messages', False) if is_admin else False
+
+        if is_admin and can_delete:
+            return False, "✅ ក្រុមនេះបាន Promote Bot ជា Administrator រួចរាល់ហើយ"
+
+        chat = await bot.get_chat(chat_id=chat_id)
+        group_name = chat.title or f"Group {chat_id}"
+
+        status_display = member.status.upper()
+        if is_admin and not can_delete:
+            status_display = "ADMINISTRATOR (ខ្វះសិទ្ធិ Delete Messages)"
+
+        reminder_msg = (
+            "⚠️ **[ការដាស់តឿនបន្ទាន់៖ សូម PROMOTE BOT ជា ADMINISTRATOR]** ⚠️\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 **ក្រុម៖** `{group_name}`\n"
+            f"🆔 **លេខ Group ID:** `{chat_id}`\n\n"
+            "🚨 **ស្ថានភាពបច្ចុប្បន្ន៖**\n"
+            f"Bot មិនទាន់ត្រូវបានតម្លើងសិទ្ធិជា **Administrator ពេញលេញ** នៅឡើយទេ (Bot Status: `{status_display}`)!\n\n"
+            "🛑 **ផលវិបាកប្រសិនបើមិនទាន់ Promote Bot៖**\n"
+            "• Bot គ្មានសិទ្ធិស្កេន ឬលុបមេរោគ `.apk`, `.exe` លួចលុយធនាគារបានឡើយ\n"
+            "• Bot គ្មានសិទ្ធិទប់ស្កាត់ Spammer ឬលុបសារ Spam បានឡើយ\n\n"
+            "👉 **សេចក្ដីណែនាំសម្រាប់ម្ចាស់ក្រុម (Group Owner/Admin)៖**\n"
+            "1️⃣ ចូលទៅកាន់ Group Settings ➡️ **Administrators** ➡️ **Add Admin**\n"
+            f"2️⃣ ជ្រើសរើស **@{BOT_USERNAME}**\n"
+            "3️⃣ បើកសិទ្ធិ **Delete Messages** និង **Ban/Restrict Users** រួចចុច Save!\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៣០ វិនាទី)*"
+        )
+        await send_auto_delete_message(
+            bot,
+            chat_id=chat_id,
+            text=reminder_msg,
+            delay=BOT_MSG_DELETE_SECONDS,
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return True, f"🔔 បានផ្ញើសារដាស់តឿនទៅកាន់ក្រុម៖ {group_name}"
+    except Exception as e:
+        logger.error(f"Failed to send admin promotion reminder to group {chat_id}: {e}")
+        return False, f"⚠️ បរាជ័យក្នុងការផ្ញើទៅ {chat_id}: {e}"
+
+
+async def broadcast_admin_promotion_reminders_all(context_or_bot) -> tuple[int, list[str]]:
+    """
+    ស្កេន និងផ្ញើសារដាស់តឿនទៅកាន់គ្រប់ Group ទាំងអស់ដែលមិនទាន់បាន Promote Bot ជា Admin
+    """
+    bot = getattr(context_or_bot, "bot", context_or_bot)
+    sent_count = 0
+    reminded_groups = []
+
+    for chat_id_str in list(GROUPS_CONFIG.keys()):
+        try:
+            cid = int(chat_id_str)
+            success, _ = await send_admin_promotion_reminder_to_group(bot, cid)
+            if success:
+                sent_count += 1
+                g_title = GROUPS_CONFIG[chat_id_str].get("title", f"Group {cid}")
+                reminded_groups.append(g_title)
+        except Exception:
+            continue
+
+    return sent_count, reminded_groups
+
 
 async def daily_reminder_loop(app):
-    logger.info("Daily Reminder background job started (2x per day for unauthorized groups)...")
+    logger.info("Daily Reminder background job started (2x per day for unauthorized groups & unpromoted groups)...")
     while True:
         try:
             now_ts = time.time()
             for chat_id_str, gdata in list(GROUPS_CONFIG.items()):
-                is_auth = is_group_authorized(int(chat_id_str))
+                chat_id = int(chat_id_str)
+
+                # ១. ដាស់តឿនក្រុមដែលមិនទាន់ទិញសិទ្ធិ (រៀងរាល់ 12 ម៉ោងម្ដង)
+                is_auth = is_group_authorized(chat_id)
                 if not is_auth:
                     last_reminder = gdata.get("last_reminder_ts", 0)
                     if now_ts - last_reminder >= 43200:
-                        chat_id = int(chat_id_str)
                         reminder_text = (
                             "📢 **[ការដាស់តឿនសុវត្ថិភាព - TELEGUARD SECURITY]** 📢\n"
                             "━━━━━━━━━━━━━━━━━━━━\n"
@@ -802,6 +877,14 @@ async def daily_reminder_loop(app):
                             parse_mode=ParseMode.MARKDOWN
                         )
                         GROUPS_CONFIG[chat_id_str]["last_reminder_ts"] = now_ts
+                        save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
+                # ២. ដាស់តឿនក្រុមដែលមិនទាន់ Promote Bot ជា Administrator (រៀងរាល់ 6 ម៉ោងម្ដង)
+                last_promo_reminder = gdata.get("last_admin_promo_reminder_ts", 0)
+                if now_ts - last_promo_reminder >= 21600:
+                    sent, _ = await send_admin_promotion_reminder_to_group(app, chat_id)
+                    if sent:
+                        GROUPS_CONFIG[chat_id_str]["last_admin_promo_reminder_ts"] = now_ts
                         save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
         except Exception as err:
             logger.error(f"Error in daily_reminder_loop: {err}")
@@ -1689,6 +1772,8 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
                 await status_command(update, context)
             elif text in ["🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id"]:
                 await myid_command(update, context)
+            elif text in ["/remind_admins", "/remind", "🔔 ដាស់តឿនក្រុមមិនទាន់ Promote"]:
+                await remind_admins_command(update, context)
             return
 
     # 2. ករណី Master Owner ប្រើក្នុង Private Chat ផ្ទាល់ខ្លួន
@@ -1786,6 +1871,8 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
             await status_command(update, context)
         elif text in ["🆔 មើលលេខ ID", "/myid", "/id"]:
             await myid_command(update, context)
+        elif text in ["/remind_admins", "/remind", "🔔 ដាស់តឿនក្រុមមិនទាន់ Promote"]:
+            await remind_admins_command(update, context)
         return
 
     # 3. ករណី Client Group Admin ប្រើក្នុង Group របស់ពួកគេ (មានសិទ្ធិតែ /status ប៉ុណ្ណោះ)
@@ -2096,6 +2183,7 @@ def generate_master_dashboard_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton("📢 ផ្សាយទៅ Channel", callback_data="dash_broadcast")
     ])
     keyboard.append([
+        InlineKeyboardButton("🔔 ដាស់តឿនក្រុមមិនទាន់ Promote", callback_data="dash_remind_unpromoted"),
         InlineKeyboardButton("🚪 បញ្ជាឱ្យ Bot ចេញពីក្រុម", callback_data="dash_leave_list")
     ])
     return InlineKeyboardMarkup(keyboard)
@@ -2177,11 +2265,14 @@ def generate_group_detail_keyboard(chat_id: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton("🔴 ដកសិទ្ធិ (Revoke)", callback_data=f"revoke_{chat_id}")
         ],
         [
-            InlineKeyboardButton("🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម", callback_data=f"leave_{chat_id}"),
-            InlineKeyboardButton("🗑️ លុប Group ចេញ", callback_data=f"set_del_{chat_id}")
+            InlineKeyboardButton("🔔 ដាស់តឿន Promote Admin", callback_data=f"remind_promo_{chat_id}"),
+            InlineKeyboardButton("🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម", callback_data=f"leave_{chat_id}")
         ],
         [
-            InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients"),
+            InlineKeyboardButton("🗑️ លុប Group ចេញ", callback_data=f"set_del_{chat_id}"),
+            InlineKeyboardButton("📋 បញ្ជីអតិថិជន CRM", callback_data="dash_clients")
+        ],
+        [
             InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")
         ]
     ]
@@ -2375,6 +2466,50 @@ async def leave_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_id=user.id,
         text=leave_status,
         reply_markup=get_master_owner_keyboard(),
+        parse_mode=ParseMode.MARKDOWN,
+        user_message=user_msg
+    )
+
+
+async def remind_admins_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ស្កេន និងផ្ញើសារដាស់តឿនទៅកាន់គ្រប់ក្រុមទាំងអស់ដែលមិនទាន់បាន Promote Bot ជា Administrator
+    """
+    user = update.effective_user
+    chat = update.effective_chat
+    if not is_sole_master_owner(user.id):
+        return
+
+    if chat.type in ["group", "supergroup"]:
+        try:
+            await update.effective_message.delete()
+        except Exception:
+            pass
+
+    count, groups = await broadcast_admin_promotion_reminders_all(context)
+    if count > 0:
+        names = "\n".join([f"• 👥 `{g}`" for g in groups])
+        res_text = (
+            "🔔 **[លទ្ធផលនៃការផ្ញើសារដាស់តឿន PROMOTE ADMIN]** 🔔\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            f"✅ បានផ្ញើសារដាស់តឿនទៅកាន់ **{count}** ក្រុមដែលមិនទាន់បាន Promote Bot ជា Administrator៖\n\n"
+            f"{names}\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "💡 *សារដាស់តឿនត្រូវបានកំណត់ឱ្យលុបស្វ័យប្រវត្តិក្នង ៣០ វិនាទីក្នុងក្រុមនីមួយៗ!*"
+        )
+    else:
+        res_text = (
+            "✅ **[ត្រួតពិនិត្យរួចរាល់ - ALL PROMOTED]**\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "🛡️ គ្មានក្រុមណាដែលខ្វះសិទ្ធិ Administrator ឡើយ! គ្រប់ក្រុមទាំងអស់ក្នុងបញ្ជីបាន Promote Bot ជា Admin រួចរាល់ ១០០%។"
+        )
+
+    user_msg = update.effective_message if (chat.type == "private") else None
+    await send_clean_command_response(
+        context,
+        chat_id=user.id,
+        text=res_text,
+        reply_markup=generate_master_dashboard_keyboard(),
         parse_mode=ParseMode.MARKDOWN,
         user_message=user_msg
     )
@@ -2870,6 +3005,21 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         await backup_command(update, context)
         return
 
+    if data == "dash_remind_unpromoted":
+        count, groups = await broadcast_admin_promotion_reminders_all(context)
+        if count > 0:
+            names = "\n".join([f"• {g}" for g in groups[:5]])
+            await query.answer(f"🔔 បានដាស់តឿន {count} ក្រុមដែលមិនទាន់ Promote Bot:\n{names}", show_alert=True)
+        else:
+            await query.answer("✅ គ្រប់ក្រុមទាំងអស់បាន Promote Bot ជា Administrator រួចរាល់ហើយ!", show_alert=True)
+        return
+
+    if data.startswith("remind_promo_"):
+        chat_id = data.replace("remind_promo_", "")
+        sent, msg = await send_admin_promotion_reminder_to_group(context, int(chat_id))
+        await query.answer(msg, show_alert=True)
+        return
+
     # 2. Drill-Down: Manage Specific Group Profile
     if data.startswith("manage_grp_"):
         chat_id = data.replace("manage_grp_", "")
@@ -3155,6 +3305,7 @@ async def post_init(application):
             BotCommand("logs", "📜 កំណត់ត្រាសុវត្ថិភាព (Logs)"),
             BotCommand("status", "🛡️ ឆែកស្ថានភាពប្រព័ន្ធការពារ"),
             BotCommand("broadcast", "📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel"),
+            BotCommand("remind", "🔔 ដាស់តឿនក្រុមមិនទាន់ Promote"),
             BotCommand("leave", "🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម"),
             BotCommand("myid", "🆔 មើលលេខ Telegram ID"),
             BotCommand("help", "❓ ការណែនាំ & ជំនួយ"),
@@ -3213,6 +3364,8 @@ def main():
     app.add_handler(CommandHandler("logs", logs_command))
     app.add_handler(CommandHandler("broadcast", broadcast_to_channel_command))
     app.add_handler(CommandHandler("channel", broadcast_to_channel_command))
+    app.add_handler(CommandHandler("remind", remind_admins_command))
+    app.add_handler(CommandHandler("remind_admins", remind_admins_command))
 
     # Master Interactive Inline Callback Router
     app.add_handler(CallbackQueryHandler(master_callback_router))

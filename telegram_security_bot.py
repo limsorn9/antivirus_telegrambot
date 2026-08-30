@@ -180,7 +180,16 @@ def sync_client_record(chat, user=None, is_auth=None, is_enabled=None, plan_days
         exp_str = "Lifetime"
         plan_name = "👑 Lifetime VIP (ពេញមួយជីវិត)"
     elif plan_days:
-        exp_dt = now + timedelta(days=plan_days)
+        existing_exp = GROUPS_CONFIG.get(chat_key, {}).get("expiry_date")
+        base_dt = now
+        if existing_exp and existing_exp not in ["Not Yet Activated", "Lifetime", "Expired"]:
+            try:
+                parsed_exp = datetime.strptime(existing_exp, "%Y-%m-%d %H:%M:%S")
+                if parsed_exp > now:
+                    base_dt = parsed_exp
+            except Exception:
+                base_dt = now
+        exp_dt = base_dt + timedelta(days=plan_days)
         exp_str = exp_dt.strftime("%Y-%m-%d %H:%M:%S")
         plan_name = f"Plan {plan_days} Days (កញ្ចប់ {plan_days} ថ្ងៃ)"
 
@@ -2365,52 +2374,59 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         await broadcast_to_channel_command(update, context)
         return
 
+async def render_group_control_panel(query, chat_id: str):
+    """
+    បង្ហាញផ្ទាំងគ្រប់គ្រង Profile របស់ Group និងប៊ូតុងកំណត់សិទ្ធិ
+    """
+    gdata = GROUPS_CONFIG.get(str(chat_id), {})
+    cdata = CLIENTS_DB.get(str(chat_id), {})
+
+    title = gdata.get("title") or cdata.get("client_group_name") or f"Group {chat_id}"
+    is_auth = gdata.get("is_authorized", False)
+    is_en = gdata.get("is_enabled", False)
+    is_life = gdata.get("is_lifetime", False)
+    plan_type = gdata.get("plan_type", "Trial")
+    act_date = gdata.get("activated_date", "Not Yet Activated")
+    exp_date = gdata.get("expiry_date", "Not Yet Activated")
+    rem_str = get_remaining_time_str(exp_date, is_life)
+
+    status_kh = "🟢 ACTIVE (កំពុងការពារ)" if (is_auth and is_en) else ("🟡 PAUSED (បានផ្អាក)" if is_auth else "🔴 UNAUTHORIZED (មិនទាន់ទិញ)")
+    threats = gdata.get("threats_blocked_count", 0)
+    c_contact = cdata.get("customer_contact", {})
+
+    # រៀបចំ Purchase History
+    p_history_str = ""
+    for p in cdata.get("purchase_history", [])[-2:]:
+        p_history_str += f"  • {p.get('package')} ({p.get('purchased_date')})\n"
+    if not p_history_str:
+        p_history_str = "  • មិនទាន់មានប្រវត្តិទិញ\n"
+
+    detail_text = (
+        f"🛠️ **[ផ្ទាំងគ្រប់គ្រងក្រុម - GROUP CONTROL PANEL]**\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 **ឈ្មោះក្រុម:** `{title}`\n"
+        f"🆔 **លេខ Group ID:** `{chat_id}`\n"
+        f"👤 **អតិថិជន:** {c_contact.get('name', 'N/A')} ({c_contact.get('username', 'N/A')})\n"
+        f"🔢 **Customer ID:** `{c_contact.get('user_id', 'N/A')}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔰 **ស្ថានភាពបច្ចុប្បន្ន:** {status_kh}\n"
+        f"🛒 **កញ្ចប់សេវាកម្ម:** {plan_type}\n"
+        f"📅 **ថ្ងៃចាប់ផ្ដើមទិញបត:** `{act_date}`\n"
+        f"⌛ **ថ្ងៃផុតកំណត់:** `{exp_date}`\n"
+        f"⏳ **រយៈពេលនៅសល់:** {rem_str}\n"
+        f"☣️ **មេរោគដែលបានទប់ស្កាត់:** `{threats}` ករណី\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"📜 **ប្រវត្តិទិញបត (Purchase History)៖**\n{p_history_str}"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"👉 **សូមចុចប៊ូតុងខាងក្រោមដើម្បីកំណត់សិទ្ធិ ឬបន្ថែមថ្ងៃប្រើប្រាស់៖**"
+    )
+    await query.edit_message_text(text=detail_text, reply_markup=generate_group_detail_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
+
+
     # 2. Drill-Down: Manage Specific Group Profile
     if data.startswith("manage_grp_"):
         chat_id = data.replace("manage_grp_", "")
-        gdata = GROUPS_CONFIG.get(str(chat_id), {})
-        cdata = CLIENTS_DB.get(str(chat_id), {})
-
-        title = gdata.get("title", f"Group {chat_id}")
-        is_auth = gdata.get("is_authorized", False)
-        is_en = gdata.get("is_enabled", False)
-        is_life = gdata.get("is_lifetime", False)
-        plan_type = gdata.get("plan_type", "Trial")
-        act_date = gdata.get("activated_date", "Not Yet Activated")
-        exp_date = gdata.get("expiry_date", "Not Yet Activated")
-        rem_str = get_remaining_time_str(exp_date, is_life)
-
-        status_kh = "🟢 ACTIVE (កំពុងការពារ)" if (is_auth and is_en) else ("🟡 PAUSED (បានផ្អាក)" if is_auth else "🔴 UNAUTHORIZED (មិនទាន់ទិញ)")
-        threats = gdata.get("threats_blocked_count", 0)
-        c_contact = cdata.get("customer_contact", {})
-
-        # រៀបចំ Purchase History
-        p_history_str = ""
-        for p in cdata.get("purchase_history", [])[-2:]:
-            p_history_str += f"  • {p.get('package')} ({p.get('purchased_date')})\n"
-        if not p_history_str:
-            p_history_str = "  • មិនទាន់មានប្រវត្តិទិញ\n"
-
-        detail_text = (
-            f"🛠️ **[ផ្ទាំងគ្រប់គ្រងក្រុម - GROUP CONTROL PANEL]**\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 **ឈ្មោះក្រុម:** `{title}`\n"
-            f"🆔 **លេខ Group ID:** `{chat_id}`\n"
-            f"👤 **អតិថិជន:** {c_contact.get('name', 'N/A')} ({c_contact.get('username', 'N/A')})\n"
-            f"🔢 **Customer ID:** `{c_contact.get('user_id', 'N/A')}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🔰 **ស្ថានភាពបច្ចុប្បន្ន:** {status_kh}\n"
-            f"🛒 **កញ្ចប់សេវាកម្ម:** {plan_type}\n"
-            f"📅 **ថ្ងៃចាប់ផ្ដើមទិញបត:** `{act_date}`\n"
-            f"⌛ **ថ្ងៃផុតកំណត់:** `{exp_date}`\n"
-            f"⏳ **រយៈពេលនៅសល់:** {rem_str}\n"
-            f"☣️ **មេរោគដែលបានទប់ស្កាត់:** `{threats}` ករណី\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"📜 **ប្រវត្តិទិញបត (Purchase History)៖**\n{p_history_str}"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"👉 **សូមចុចប៊ូតុងខាងក្រោមដើម្បីកំណត់សិទ្ធិ ឬបន្ថែមថ្ងៃប្រើប្រាស់៖**"
-        )
-        await query.edit_message_text(text=detail_text, reply_markup=generate_group_detail_keyboard(chat_id), parse_mode=ParseMode.MARKDOWN)
+        await render_group_control_panel(query, chat_id)
         return
 
     # 3. Actions: Add 7 Days / Add 30 Days / Add 90 Days / Set Lifetime / Revoke / Toggle / Delete / Leave
@@ -2418,33 +2434,44 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         chat_id = data.replace("add_7_", "")
         chat_obj = type('obj', (object,), {'id': int(chat_id), 'title': GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")})
         sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=7, is_lifetime=False)
-        await query.answer("🎁 បានបន្ថែមរយៈពេលសាកល្បង ៧ ថ្ងៃជោគជ័យ!", show_alert=True)
-        await master_callback_router(update, context)
+        try:
+            await query.answer("🎁 បានបន្ថែមរយៈពេលសាកល្បង ៧ ថ្ងៃជោគជ័យ!", show_alert=True)
+        except Exception:
+            pass
+        await render_group_control_panel(query, chat_id)
         return
 
     if data.startswith("add_30_"):
         chat_id = data.replace("add_30_", "")
         chat_obj = type('obj', (object,), {'id': int(chat_id), 'title': GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")})
         sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=30, is_lifetime=False)
-        await query.answer("✅ បានបន្ថែមរយៈពេល 30 ថ្ងៃជោគជ័យ!", show_alert=True)
-        # Reload group profile view
-        await master_callback_router(update, context)
+        try:
+            await query.answer("✅ បានបន្ថែមរយៈពេល 30 ថ្ងៃជោគជ័យ!", show_alert=True)
+        except Exception:
+            pass
+        await render_group_control_panel(query, chat_id)
         return
 
     if data.startswith("add_90_"):
         chat_id = data.replace("add_90_", "")
         chat_obj = type('obj', (object,), {'id': int(chat_id), 'title': GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")})
         sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=90, is_lifetime=False)
-        await query.answer("✅ បានបន្ថែមរយៈពេល 90 ថ្ងៃជោគជ័យ!", show_alert=True)
-        await master_callback_router(update, context)
+        try:
+            await query.answer("✅ បានបន្ថែមរយៈពេល 90 ថ្ងៃជោគជ័យ!", show_alert=True)
+        except Exception:
+            pass
+        await render_group_control_panel(query, chat_id)
         return
 
     if data.startswith("set_life_"):
         chat_id = data.replace("set_life_", "")
         chat_obj = type('obj', (object,), {'id': int(chat_id), 'title': GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")})
         sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=None, is_lifetime=True)
-        await query.answer("👑 បានកំណត់សិទ្ធិ VIP ពេញមួយជីវិត (Lifetime) ជោគជ័យ!", show_alert=True)
-        await master_callback_router(update, context)
+        try:
+            await query.answer("👑 បានកំណត់សិទ្ធិ VIP ពេញមួយជីវិត (Lifetime) ជោគជ័យ!", show_alert=True)
+        except Exception:
+            pass
+        await render_group_control_panel(query, chat_id)
         return
 
     if data.startswith("revoke_"):
@@ -2457,8 +2484,11 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         if chat_id in CLIENTS_DB:
             CLIENTS_DB[chat_id]["license_status"] = "🔴 UNAUTHORIZED (បានដកសិទ្ធិ)"
             save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
-        await query.answer("🔴 បានដកសិទ្ធិប្រើប្រាស់ពី Group នេះរួចរាល់!", show_alert=True)
-        await master_callback_router(update, context)
+        try:
+            await query.answer("🔴 បានដកសិទ្ធិប្រើប្រាស់ពី Group នេះរួចរាល់!", show_alert=True)
+        except Exception:
+            pass
+        await render_group_control_panel(query, chat_id)
         return
 
     if data.startswith("toggle_en_"):
@@ -2467,8 +2497,11 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
             cur_en = GROUPS_CONFIG[chat_id].get("is_enabled", False)
             GROUPS_CONFIG[chat_id]["is_enabled"] = not cur_en
             save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
-        await query.answer("🔄 បានប្ដូរស្ថានភាព ON/PAUSE រួចរាល់!", show_alert=False)
-        await master_callback_router(update, context)
+        try:
+            await query.answer("🔄 បានប្ដូរស្ថានភាព ON/PAUSE រួចរាល់!", show_alert=False)
+        except Exception:
+            pass
+        await render_group_control_panel(query, chat_id)
         return
 
     if data.startswith("set_del_"):
@@ -2544,11 +2577,16 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=7, is_lifetime=False)
 
         group_title = GROUPS_CONFIG.get(str(chat_id), {}).get("title", chat_id)
+        approve_kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛠️ គ្រប់គ្រងក្រុមនេះ (Manage)", callback_data=f"manage_grp_{chat_id}")],
+            [InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")]
+        ])
         await query.edit_message_text(
             f"✅ **[បានអនុញ្ញាតឱ្យសាកល្បង ៧ ថ្ងៃ ជោគជ័យ]**\n\n"
             f"👥 ក្រុម៖ **{group_title}** (`{chat_id}`)\n"
             f"🛒 កញ្ចប់៖ **Trial 7 Days (សាកល្បង ៧ ថ្ងៃ)**\n"
             f"🛡️ ស្ថានភាព៖ **បានបើកដំណើរការសិទ្ធិការពារពេញលេញ ១០០% រយៈពេល ៧ ថ្ងៃ!**",
+            reply_markup=approve_kb,
             parse_mode=ParseMode.MARKDOWN
         )
 
@@ -2559,7 +2597,10 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
             "✅ ចាប់ហ្វាល់បន្លំកន្ទុយពីរ (.jpg.apk, .pdf.apk)\n"
             "✅ ប្រព័ន្ធ Anti-Flood & Clean Group 15s"
         )
-        await send_auto_delete_message(context, int(chat_id), success_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        try:
+            await send_auto_delete_message(context, int(chat_id), success_msg, delay=BOT_MSG_DELETE_SECONDS, parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            logger.error(f"Cannot send success message to group {chat_id}: {e}")
         return
 
     if data.startswith("reject_"):
@@ -2573,10 +2614,15 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
                 save_json_file(CLIENTS_DB_FILE, CLIENTS_DB)
 
             group_title = GROUPS_CONFIG[chat_id].get("title", chat_id)
+            reject_kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚪 បញ្ជាឱ្យ Bot ចាកចេញពីក្រុម", callback_data=f"confirm_leave_{chat_id}")],
+                [InlineKeyboardButton("🔙 ត្រឡប់ទៅ Dashboard", callback_data="dash_back")]
+            ])
             await query.edit_message_text(
                 f"🔴 **[បានកំណត់ជាមិនទាន់ទិញសិទ្ធិ]**\n\n"
                 f"👥 ក្រុម៖ **{group_title}** (`{chat_id}`)\n"
                 f"⚠️ ស្ថានភាព៖ **មិនទាន់ដំណើរការការពារទេ (Bot នឹងលោតសារដាស់តឿនឱ្យទិញសិទ្ធិ ២ ដងក្នុង ១ ថ្ងៃ)**",
+                reply_markup=reject_kb,
                 parse_mode=ParseMode.MARKDOWN
             )
         return

@@ -47,11 +47,12 @@ from dotenv import load_dotenv
 from telegram import (
     Update,
     BotCommand,
+    BotCommandScopeChat,
+    BotCommandScopeAllChatAdministrators,
+    BotCommandScopeAllGroupChats,
+    BotCommandScopeDefault,
     ChatPermissions,
     ChatMemberUpdated,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    KeyboardButtonRequestChat,
     ReplyKeyboardRemove,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
@@ -1194,7 +1195,17 @@ async def scan_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ឬផ្ញើហ្វាល់មកកាន់ Bot ក្នុង Private Chat
     """
     chat = update.effective_chat
+    user = update.effective_user
     msg = update.effective_message
+
+    # អេដមីនក្រុមនីមួយៗមានសិទ្ធិតែ /status ប៉ុណ្ណោះ ដូច្នេះ /scan ក្នុង Group គឺសម្រាប់តែ Master Owner
+    if chat.type in ["group", "supergroup"] and not is_sole_master_owner(user.id):
+        if msg:
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+        return
 
     # ករណី Reply លើសារណាមួយក្នុង Group
     reply_msg = msg.reply_to_message if msg else None
@@ -1643,30 +1654,27 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
             await myid_command(update, context)
         return
 
-    # 3. ករណី Client Group Admin ប្រើក្នុង Group របស់ពួកគេ
+    # 3. ករណី Client Group Admin ប្រើក្នុង Group របស់ពួកគេ (មានសិទ្ធិតែ /status ប៉ុណ្ណោះ)
     if is_admin and chat.type in ["group", "supergroup"]:
-        if text in ["🔄 Sync ក្រុមនេះចូលបញ្ជី", "/sync"]:
-            sync_client_record(chat, user, is_auth=False, is_enabled=False)
-            await notify_master_admin_new_group(context, chat, user)
-            await send_auto_delete_message(
-                context,
-                chat.id,
-                "✅ **[បានបញ្ជូនសំណើសុំបើកសិទ្ធិ]** សំណើត្រូវបានបញ្ជូនទៅ Master Super Admin ដើម្បីពិនិត្យ និងអនុញ្ញាត!",
-                delay=BOT_MSG_DELETE_SECONDS,
-                parse_mode=ParseMode.MARKDOWN
-            )
-            return
-        elif text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
+        if text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
             await status_command(update, context)
             return
-        elif text in ["🆔 មើលលេខ ID Group", "/myid", "/id"]:
-            await myid_command(update, context)
+        if text.startswith("/"):
+            try:
+                await update.effective_message.delete()
+            except Exception:
+                pass
             return
 
-    # 4. ប្រសិនបើសមាជិកធម្មតា ឬអ្នកគ្មានសិទ្ធិព្យាយាមប្រើ
+    # 4. ប្រសិនបើសមាជិកធម្មតា ឬអ្នកគ្មានសិទ្ធិព្យាយាមប្រើក្នុង Group
+    if chat.type in ["group", "supergroup"] and text.startswith("/"):
+        try:
+            await update.effective_message.delete()
+        except Exception:
+            pass
+        return
+
     if text in [
-        "🛡️ ឆែកស្ថានភាព Bot", "/status", "/check",
-        "🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id",
         "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin",
         "📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients",
         "📜 ប្រវត្តិការពារ & ការទិញបត", "📜 ប្រវត្តិការពារ (Logs)", "/logs",
@@ -1707,10 +1715,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = (
                 f"🤖 **សួស្តី {user.first_name}!**\n\n"
                 "ខ្ញុំជា Bot ការពារមេរោគ និងគ្រប់គ្រងសុវត្ថិភាព Group Telegram!\n\n"
-                "🛡️ **មុខងារសម្រាប់ Group Admin៖**\n"
-                "👉 `[ 🛡️ ឆែកស្ថានភាព Bot ]` : ឆែកស្ថានភាពការពារក្នុង Group\n"
-                "👉 `[ 🆔 មើលលេខ ID Group ]` : មើលលេខសម្គាល់ Group ID\n\n"
-                "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ១៥ វិនាទី)*"
+                "🛡️ **មុខងារសម្រាប់ Group Admin ក្នុងក្រុមនេះ៖**\n"
+                "👉 វាយពាក្យ `/status` : ឆែកស្ថានភាពប្រព័ន្ធការពារក្នុង Group របស់អ្នក\n\n"
+                "*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ១៥ វិនាទី)*"
             )
             await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=get_client_admin_keyboard(), parse_mode=ParseMode.MARKDOWN)
         return
@@ -1874,31 +1881,22 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
     is_owner = is_sole_master_owner(user.id)
-    is_admin = await is_client_group_admin(update, context)
 
-    if not is_owner and not is_admin:
-        if chat.type in ["group", "supergroup"]:
-            try:
-                await update.effective_message.delete()
-            except Exception:
-                pass
-        return
-
-    is_auth = is_group_authorized(chat.id)
-    license_status = "🟢 បានបើកសិទ្ធិការពាររួចរាល់" if is_auth else "🔴 មិនទាន់ទិញអាជ្ញាប័ណ្ណ (Inactive)"
-
+    # ក្នុង Group អេដមីនមានសិទ្ធិតែ /status ប៉ុណ្ណោះ ដូច្នេះ /myid ក្នុង Group គឺសម្រាប់តែ Master Owner (Stealth Mode)
     if chat.type in ["group", "supergroup"]:
+        try:
+            await update.effective_message.delete()
+        except Exception:
+            pass
+        if not is_owner:
+            return
         text = (
-            f"🆔 **ព័ត៌មាន GROUP ID៖**\n\n"
+            f"🆔 **ព័ត៌មាន GROUP ID (STEALTH PRIVACY)៖**\n\n"
             f"👥 **ឈ្មោះក្រុម:** `{chat.title}`\n"
-            f"💬 **លេខ Group ID របស់អ្នក:** `{chat.id}`\n"
-            f"🔐 **ស្ថានភាពសេវាកម្ម:** {license_status}\n\n"
-            f"👉 ឆានែលផ្លូវការ៖ [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
-            f"💡 *(សូមយកលេខ Group ID `{chat.id}` នេះ ផ្ញើទៅកាន់ Master Admin ដើម្បីទិញ ឬបើកសិទ្ធិប្រើប្រាស់)*\n\n"
-            f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុង ១៥ វិនាទី)*"
+            f"💬 **លេខ Group ID:** `{chat.id}`\n"
         )
-        kb = get_client_admin_keyboard() if not is_owner else None
-        await send_auto_delete_message(context, chat.id, text, delay=BOT_MSG_DELETE_SECONDS, reply_markup=kb, parse_mode=ParseMode.MARKDOWN)
+        await context.bot.send_message(chat_id=user.id, text=text, parse_mode=ParseMode.MARKDOWN)
+        return
     else:
         if is_owner:
             text = (
@@ -2984,7 +2982,23 @@ async def post_init(application):
     asyncio.create_task(bot_message_sweeper_loop(application))
     asyncio.create_task(pull_github_vault_on_startup())
     try:
-        commands = [
+        # ១. Commands សម្រាប់ Group Admins ក្នុងក្រុមនីមួយៗ (មានសិទ្ធិតែ /status ប៉ុណ្ណោះ តាមការកំណត់)
+        group_admin_commands = [
+            BotCommand("status", "🛡️ ឆែកស្ថានភាពប្រព័ន្ធការពារក្នុងក្រុម")
+        ]
+        await application.bot.set_my_commands(group_admin_commands, scope=BotCommandScopeAllChatAdministrators())
+        await application.bot.set_my_commands(group_admin_commands, scope=BotCommandScopeAllGroupChats())
+
+        # ២. Commands សម្រាប់ Default / សមាជិកទូទៅក្នុង Private Chat
+        default_commands = [
+            BotCommand("status", "🛡️ ឆែកស្ថានភាពប្រព័ន្ធការពារ"),
+            BotCommand("clean", "🧹 លុបប៊ូតុងខាងក្រោមឆាតចេញ"),
+            BotCommand("start", "🚀 ចាប់ផ្ដើម Bot")
+        ]
+        await application.bot.set_my_commands(default_commands, scope=BotCommandScopeDefault())
+
+        # ៣. Commands គ្រប់គ្រងពេញលេញសម្រាប់តែ Master Super Admin
+        master_commands = [
             BotCommand("admin", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
             BotCommand("groups", "📋 បញ្ជីក្រុម និងអតិថិជន (CRM)"),
             BotCommand("addgroup", "➕ បន្ថែម ឬហៅក្រុមចាស់ចូលបញ្ជី"),
@@ -3001,7 +3015,12 @@ async def post_init(application):
             BotCommand("help", "❓ ការណែនាំ & ជំនួយ"),
             BotCommand("start", "🚀 ចាប់ផ្ដើម Bot / បើកផ្ទាំងបញ្ជា")
         ]
-        await application.bot.set_my_commands(commands)
+        for aid in SUPER_ADMIN_IDS:
+            try:
+                await application.bot.set_my_commands(master_commands, scope=BotCommandScopeChat(chat_id=int(aid)))
+            except Exception as e:
+                logger.error(f"Error setting master commands for {aid}: {e}")
+
         try:
             await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
         except Exception:

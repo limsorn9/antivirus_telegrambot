@@ -588,19 +588,16 @@ async def send_clean_command_response(
             pass
 
     # ២.១. ដក និងសម្អាតប៊ូតុងខាងក្រោមឆាត (ReplyKeyboardMarkup) ចេញពីឧបករណ៍ User ឱ្យបាន ១០០%
+    final_markup = reply_markup
     if chat_id > 0:
         if isinstance(reply_markup, InlineKeyboardMarkup):
             try:
-                rm_msg = await context.bot.send_message(
-                    chat_id=chat_id,
-                    text="🧹",
-                    reply_markup=ReplyKeyboardRemove()
-                )
-                await rm_msg.delete()
+                final_markup = reply_markup.to_dict()
+                final_markup["remove_keyboard"] = True
             except Exception:
-                pass
+                final_markup = reply_markup
         elif reply_markup is None:
-            reply_markup = ReplyKeyboardRemove()
+            final_markup = ReplyKeyboardRemove()
 
     # ៣. ផ្ញើសារឆ្លើយតបថ្មី
     sent_msg = None
@@ -608,7 +605,7 @@ async def send_clean_command_response(
         sent_msg = await context.bot.send_message(
             chat_id=chat_id,
             text=text,
-            reply_markup=reply_markup,
+            reply_markup=final_markup,
             parse_mode=parse_mode
         )
     except Exception as err:

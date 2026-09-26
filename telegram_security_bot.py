@@ -44,6 +44,9 @@ import logging
 from datetime import datetime, timedelta
 import aiohttp
 from dotenv import load_dotenv
+import threading
+import firebase_admin
+from firebase_admin import credentials, db
 from telegram import (
     Update,
     BotCommand,
@@ -52,8 +55,10 @@ from telegram import (
     BotCommandScopeAllGroupChats,
     BotCommandScopeDefault,
     ChatPermissions,
-    ChatMemberUpdated,
     ReplyKeyboardRemove,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    KeyboardButtonRequestChat,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     MenuButtonCommands,
@@ -73,6 +78,31 @@ from telegram.ext import (
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 VIRUSTOTAL_API_KEY = os.getenv("VIRUSTOTAL_API_KEY", "").strip()
+FIREBASE_DB_URL = os.getenv("FIREBASE_DB_URL", "").strip()
+FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS", "").strip()
+
+firebase_initialized = False
+if FIREBASE_DB_URL and FIREBASE_CREDENTIALS:
+    try:
+        if FIREBASE_CREDENTIALS.strip().startswith("{"):
+            cred_dict = json.loads(FIREBASE_CREDENTIALS)
+            cred = credentials.Certificate(cred_dict)
+        else:
+            try:
+                decoded = base64.b64decode(FIREBASE_CREDENTIALS).decode("utf-8")
+                cred_dict = json.loads(decoded)
+                cred = credentials.Certificate(cred_dict)
+            except Exception:
+                cred = credentials.Certificate(FIREBASE_CREDENTIALS)
+                
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred, {
+                'databaseURL': FIREBASE_DB_URL
+            })
+        firebase_initialized = True
+        print("[OK] Firebase Realtime Database Initialized Successfully!")
+    except Exception as e:
+        print(f"[Error] Firebase Initialization Failed: {e}")
 
 # កំណត់ Master Super Admin / Sole Owner (ID: 240224709)
 SUPER_ADMIN_IDS = {"240224709"}
@@ -128,6 +158,19 @@ DEFAULT_AUDIT_LOGS_VAULT = []
 # ==================== PERMANENT STORAGE HELPERS ====================
 
 def load_json_file(file_path: str, default_val: any) -> any:
+    if firebase_initialized:
+        try:
+            node_name = file_path.replace(".json", "")
+            ref = db.reference(f"/{node_name}")
+            data = ref.get()
+            if data is not None:
+                # Sync down to local file
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=4, ensure_ascii=False)
+                return data
+        except Exception as e:
+            logger.error(f"Error loading {file_path} from Firebase: {e}")
+
     if os.path.exists(file_path):
         try:
             with open(file_path, "r", encoding="utf-8") as f:
@@ -163,10 +206,22 @@ def schedule_cloud_vault_sync():
         pass
 
 
+def _firebase_save_thread(node_name, data):
+    try:
+        ref = db.reference(f"/{node_name}")
+        ref.set(data)
+    except Exception as e:
+        logger.error(f"Error saving {node_name} to Firebase: {e}")
+
 def save_json_file(file_path: str, data: any):
     try:
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
+            
+        if firebase_initialized:
+            node_name = file_path.replace(".json", "")
+            threading.Thread(target=_firebase_save_thread, args=(node_name, data)).start()
+
         if file_path in [GROUPS_CONFIG_FILE, CLIENTS_DB_FILE]:
             schedule_cloud_vault_sync()
         if GITHUB_TOKEN and file_path in [GROUPS_CONFIG_FILE, CLIENTS_DB_FILE]:
@@ -990,12 +1045,24 @@ async def handle_bot_added_to_group(update: Update, context: ContextTypes.DEFAUL
 
 # ==================== DYNAMIC KEYBOARD BUILDER ====================
 
-def get_master_owner_keyboard() -> ReplyKeyboardRemove:
+def get_master_owner_keyboard() -> ReplyKeyboardMarkup:
     """
-    ដកប៊ូតុងខាងក្រោមឆាត (ReplyKeyboardMarkup) ចេញទាំងអស់
-    តាមការស្នើសុំរបស់អ្នកប្រើប្រាស់ (ប្រើតែ Telegram Native Menu Button & Inline Buttons)
+    បង្កើត Keyboard ខាងក្រោមឆាតសម្រាប់ Master Admin 
+    មាន ២ ប៊ូតុង៖ (១) Admin Dashboard (២) ចុចរើសក្រុម (Native Picker)
     """
-    return ReplyKeyboardRemove()
+    return ReplyKeyboardMarkup(
+        [
+            [
+                KeyboardButton(text="⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard"),
+                KeyboardButton(
+                    text="👥 ចុចរើសក្រុម", 
+                    request_chat=KeyboardButtonRequestChat(request_id=1, chat_is_channel=False)
+                )
+            ]
+        ],
+        resize_keyboard=True,
+        is_persistent=True
+    )
 
 
 def get_client_admin_keyboard() -> ReplyKeyboardRemove:
@@ -1668,8 +1735,6 @@ async def broadcast_to_channel_command(update: Update, context: ContextTypes.DEF
         f"📢 **ឆានែលផ្លូវការ៖** {OFFICIAL_CHANNEL_USERNAME}\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
-
-    success = False
     result_text = ""
     try:
         await context.bot.send_message(
@@ -1928,7 +1993,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if is_owner:
             await context.bot.send_message(
                 chat_id=user.id,
-                text=f"👑 **សូមស្វាគមន៍ម្ចាស់ Bot! (Master Owner)**\n\n🔒 **[Stealth Mode Active]** ផ្ទាំងបញ្ជា និងប៊ូតុងគ្រប់គ្រងរបស់អ្នក ត្រូវបានរក្សាជាសម្ងាត់ក្នុង Chat ផ្ទាល់ខ្លួននេះ!",
+                text="👑 **សូមស្វាគមន៍ម្ចាស់ Bot! (Master Owner)**\n\n🔒 **[Stealth Mode Active]** ផ្ទាំងបញ្ជា និងប៊ូតុងគ្រប់គ្រងរបស់អ្នក ត្រូវបានរក្សាជាសម្ងាត់ក្នុង Chat ផ្ទាល់ខ្លួននេះ!",
                 reply_markup=get_master_owner_keyboard(),
                 parse_mode=ParseMode.MARKDOWN
             )
@@ -2248,7 +2313,6 @@ def generate_group_detail_keyboard(chat_id: str) -> InlineKeyboardMarkup:
     Sub-menu បញ្ជា និងកំណត់សិទ្ធិ/រយៈពេលប្រើប្រាស់របស់ Group នីមួយៗ
     """
     gdata = GROUPS_CONFIG.get(str(chat_id), {})
-    is_auth = gdata.get("is_authorized", False)
     is_en = gdata.get("is_enabled", False)
 
     keyboard = [

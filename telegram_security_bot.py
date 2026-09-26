@@ -1356,7 +1356,31 @@ async def handle_anti_flood(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     return False
 
+async def notify_admins_privately(context: ContextTypes.DEFAULT_TYPE, chat, text: str, photo_file_id: str = None):
+    try:
+        admins = await context.bot.get_chat_administrators(chat.id)
+        target_user_ids = {admin.user.id for admin in admins if not admin.user.is_bot}
+        
+        # បន្ថែម Master Owner IDs ចូលក្នុងបញ្ជីអ្នកទទួលដំណឹងនេះដែរ
+        for master_id in SUPER_ADMIN_IDS:
+            try:
+                target_user_ids.add(int(master_id))
+            except ValueError:
+                pass
 
+        dm_text = f"🚨 **[របាយការណ៍សុវត្ថិភាពពីក្រុម {chat.title}]** 🚨\n\n" + text.replace("*(សារនេះនឹងរលាយបាត់ទៅវិញស្វ័យប្រវត្តិក្នងរយៈពេល ៦០ វិនាទី)*", "").replace("*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៦០ វិនាទី)*", "")
+        
+        for uid in target_user_ids:
+            try:
+                if photo_file_id:
+                    await context.bot.send_photo(chat_id=uid, photo=photo_file_id, caption=dm_text, parse_mode=ParseMode.MARKDOWN)
+                else:
+                    await context.bot.send_message(chat_id=uid, text=dm_text, parse_mode=ParseMode.MARKDOWN)
+            except Exception:
+                # User hasn't started the bot or blocked it
+                pass
+    except Exception as e:
+        logger.error(f"Cannot fetch admins for private notification: {e}")
 # ==================== FILE & MALWARE SCANNER ====================
 
 async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1486,6 +1510,8 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
                 delay=BOT_MSG_DELETE_SECONDS,
                 parse_mode=ParseMode.MARKDOWN
             )
+        
+        await notify_admins_privately(context, chat, warning_text, photo_file_id)
         return
 
     # ករណីទី ២៖ Archive File (.zip, .rar) -> VirusTotal
@@ -1551,6 +1577,8 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
                         delay=BOT_MSG_DELETE_SECONDS,
                         parse_mode=ParseMode.MARKDOWN
                     )
+                
+                await notify_admins_privately(context, chat, warning_text, photo_file_id)
         except Exception as e:
             logger.error(f"Error inspecting archive: {e}")
 

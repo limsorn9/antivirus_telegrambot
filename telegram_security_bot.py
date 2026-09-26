@@ -580,11 +580,19 @@ def sync_client_record(chat, user=None, is_auth=None, is_enabled=None, plan_days
         elif is_auth is False:
             CLIENTS_DB[chat_key]["license_status"] = "🔴 UNAUTHORIZED (មិនទាន់ទិញ)"
 
+        # លុបសិទ្ធិសាកល្បង ៧ ថ្ងៃចោលពីប្រវត្តិ មុននឹងបន្ថែមសិទ្ធិថ្មី (កុំឱ្យរញ៉េរញ៉ៃ)
+        if is_lifetime or plan_days:
+            phist = CLIENTS_DB[chat_key].setdefault("purchase_history", [])
+            CLIENTS_DB[chat_key]["purchase_history"] = [
+                p for p in phist 
+                if p.get("package") not in ["Plan 7 Days (កញ្ចប់ 7 ថ្ងៃ)", "Trial / Not Activated"]
+            ]
+
         if is_lifetime:
             CLIENTS_DB[chat_key]["is_lifetime"] = True
             CLIENTS_DB[chat_key]["expiry_date"] = "Lifetime"
             CLIENTS_DB[chat_key]["plan_type"] = "👑 Lifetime VIP (ពេញមួយជីវិត)"
-            CLIENTS_DB[chat_key].setdefault("purchase_history", []).append({
+            CLIENTS_DB[chat_key]["purchase_history"].append({
                 "package": "👑 Lifetime VIP",
                 "purchased_date": now_str,
                 "duration": "Lifetime",
@@ -594,7 +602,7 @@ def sync_client_record(chat, user=None, is_auth=None, is_enabled=None, plan_days
             CLIENTS_DB[chat_key]["is_lifetime"] = False
             CLIENTS_DB[chat_key]["expiry_date"] = exp_str
             CLIENTS_DB[chat_key]["plan_type"] = f"Plan {plan_days} Days (កញ្ចប់ {plan_days} ថ្ងៃ)"
-            CLIENTS_DB[chat_key].setdefault("purchase_history", []).append({
+            CLIENTS_DB[chat_key]["purchase_history"].append({
                 "package": f"Plan {plan_days} Days",
                 "purchased_date": now_str,
                 "duration": f"{plan_days} Days",
@@ -2331,11 +2339,14 @@ def generate_group_detail_keyboard(chat_id: str) -> InlineKeyboardMarkup:
     keyboard = [
         [
             InlineKeyboardButton("🎁 សាកល្បង ៧ ថ្ងៃ (+7D)", callback_data=f"add_7_{chat_id}"),
-            InlineKeyboardButton("➕ បន្ថែម 30 ថ្ងៃ (+30D)", callback_data=f"add_30_{chat_id}")
+            InlineKeyboardButton("➕ ៣០ ថ្ងៃ (+30D)", callback_data=f"add_30_{chat_id}")
         ],
         [
-            InlineKeyboardButton("➕ បន្ថែម 90 ថ្ងៃ (+90D)", callback_data=f"add_90_{chat_id}"),
-            InlineKeyboardButton("👑 ពេញមួយជីវិត (Lifetime)", callback_data=f"set_life_{chat_id}")
+            InlineKeyboardButton("➕ ៩០ ថ្ងៃ (+90D)", callback_data=f"add_90_{chat_id}"),
+            InlineKeyboardButton("➕ ១ ឆ្នាំ (+365D)", callback_data=f"add_365_{chat_id}")
+        ],
+        [
+            InlineKeyboardButton("👑 VIP ពេញមួយជីវិត (Lifetime)", callback_data=f"set_life_{chat_id}")
         ],
         [
             InlineKeyboardButton("🟢 បើក (ON)" if not is_en else "🟡 ផ្អាក (PAUSE)", callback_data=f"toggle_en_{chat_id}"),
@@ -3132,6 +3143,17 @@ async def master_callback_router(update: Update, context: ContextTypes.DEFAULT_T
         sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=90, is_lifetime=False)
         try:
             await query.answer("✅ បានបន្ថែមរយៈពេល 90 ថ្ងៃជោគជ័យ!", show_alert=True)
+        except Exception:
+            pass
+        await render_group_control_panel(query, chat_id)
+        return
+
+    if data.startswith("add_365_"):
+        chat_id = data.replace("add_365_", "")
+        chat_obj = type('obj', (object,), {'id': int(chat_id), 'title': GROUPS_CONFIG.get(str(chat_id), {}).get("title", f"Group {chat_id}")})
+        sync_client_record(chat_obj, user=None, is_auth=True, is_enabled=True, plan_days=365, is_lifetime=False)
+        try:
+            await query.answer("✅ បានបន្ថែមរយៈពេល 1 ឆ្នាំ (365 ថ្ងៃ) ជោគជ័យ!", show_alert=True)
         except Exception:
             pass
         await render_group_control_panel(query, chat_id)

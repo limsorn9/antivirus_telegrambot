@@ -953,6 +953,40 @@ async def daily_reminder_loop(app):
                     if sent:
                         GROUPS_CONFIG[chat_id_str]["last_admin_promo_reminder_ts"] = now_ts
                         save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+
+                # ៣. ដាស់តឿនក្រុមដែលសល់សិទ្ធិប្រើប្រាស់ត្រឹម ៣ ថ្ងៃ ឬតិចជាង (រៀងរាល់ ២៤ ម៉ោងម្តង)
+                if is_auth:
+                    is_lifetime = gdata.get("is_lifetime", False)
+                    expiry_date_str = gdata.get("expiry_date", "")
+                    if not is_lifetime and expiry_date_str not in ["", "N/A", "Not Yet Activated", "Lifetime"]:
+                        try:
+                            exp = datetime.strptime(expiry_date_str, "%Y-%m-%d %H:%M:%S")
+                            diff = exp - datetime.now()
+                            days_left = diff.days
+                            if 0 <= days_left <= 3:
+                                last_expiry_warning = gdata.get("last_expiry_warning_ts", 0)
+                                if now_ts - last_expiry_warning >= 86400: # ២៤ ម៉ោងម្តង
+                                    warning_text = (
+                                        "⚠️ **[សេចក្តីជូនដំណឹង: អាជ្ញាប័ណ្ណជិតផុតកំណត់]** ⚠️\n"
+                                        "━━━━━━━━━━━━━━━━━━━━\n"
+                                        f"📢 **សូមជម្រាបជូន Admin ក្រុម `{gdata.get('title', 'Group')}`:**\n"
+                                        f"⏳ សិទ្ធិប្រើប្រាស់សេវាកម្មការពារមេរោគរបស់អ្នក នៅសល់ត្រឹមតែ **{days_left} ថ្ងៃទៀតប៉ុណ្ណោះ!**\n\n"
+                                        f"👉 **ឆានែលផ្លូវការ៖** [{OFFICIAL_CHANNEL_USERNAME}]({OFFICIAL_CHANNEL_LINK})\n"
+                                        "👉 សូមទាក់ទង Master Super Admin ដើម្បីទិញអាជ្ញាប័ណ្ណបន្ត ជៀសវាងការផ្អាកប្រព័ន្ធការពារដោយស្វ័យប្រវត្តិ។\n"
+                                        "━━━━━━━━━━━━━━━━━━━━\n"
+                                        f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៦០ វិនាទី)*"
+                                    )
+                                    await send_auto_delete_message(
+                                        app,
+                                        chat_id=chat_id,
+                                        text=warning_text,
+                                        delay=BOT_MSG_DELETE_SECONDS,
+                                        parse_mode=ParseMode.MARKDOWN
+                                    )
+                                    GROUPS_CONFIG[chat_id_str]["last_expiry_warning_ts"] = now_ts
+                                    save_json_file(GROUPS_CONFIG_FILE, GROUPS_CONFIG)
+                        except Exception as e:
+                            logger.error(f"Error checking expiry warning for {chat_id_str}: {e}")
         except Exception as err:
             logger.error(f"Error in daily_reminder_loop: {err}")
 

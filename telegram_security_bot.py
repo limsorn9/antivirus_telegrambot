@@ -1809,7 +1809,8 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
 
     # 1. ករណី Master Owner វាយពាក្យបញ្ជា ឬចុចប៊ូតុងក្នុង Group ➡️ លុបសារពី Group ចោលភ្លាម & ផ្ញើទៅ Private Chat
     if is_owner and chat.type in ["group", "supergroup"]:
-        if text in [
+        base_cmd = text.split('@')[0].strip() if text.startswith('/') else text
+        if base_cmd in [
             "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin",
             "👥 ចុចរើសក្រុម (Select Group)", "👥 ចុចរើសក្រុម",
             "➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup",
@@ -1827,29 +1828,29 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
             except Exception:
                 pass
 
-            if text in ["/sync", "🔄 Sync ក្រុមនេះចូលបញ្ជី"]:
+            if base_cmd in ["/sync", "🔄 Sync ក្រុមនេះចូលបញ្ជី"]:
                 await sync_group_command(update, context)
-            elif text in ["👥 ចុចរើសក្រុម (Select Group)", "👥 ចុចរើសក្រុម"]:
+            elif base_cmd in ["👥 ចុចរើសក្រុម (Select Group)", "👥 ចុចរើសក្រុម"]:
                 await prompt_select_group(context, user.id)
-            elif text in ["➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup"]:
+            elif base_cmd in ["➕ បន្ថែម Group តាម ID", "➕ បន្ថែមក្រុម", "/addgroup"]:
                 await prompt_add_group(context, user.id)
-            elif text in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
+            elif base_cmd in ["🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start)", "/start"]:
                 await start_command(update, context)
-            elif text in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
+            elif base_cmd in ["⚙️ ផ្ទាំងគ្រប់គ្រង Admin Dashboard", "⚙️ ផ្ទាំងគ្រប់គ្រង Admin Panel", "/admin"]:
                 await admin_command(update, context)
-            elif text in ["📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients"]:
+            elif base_cmd in ["📋 បញ្ជីអតិថិជន & Group", "📋 បញ្ជីឈ្មោះក្រុម & អតិថិជន", "/groups", "/clients"]:
                 await list_groups_command(update, context, send_to_user_id=user.id)
-            elif text in ["📜 ប្រវត្តិការពារ & ការទិញបត", "📜 ប្រវត្តិការពារ (Logs)", "/logs"]:
+            elif base_cmd in ["📜 ប្រវត្តិការពារ & ការទិញបត", "📜 ប្រវត្តិការពារ (Logs)", "/logs"]:
                 await logs_command(update, context, send_to_user_id=user.id)
-            elif text in ["📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel", "/broadcast", "/channel"]:
+            elif base_cmd in ["📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel", "/broadcast", "/channel"]:
                 await broadcast_to_channel_command(update, context)
-            elif text in ["❓ ការណែនាំ & ជំនួយ", "/help"]:
+            elif base_cmd in ["❓ ការណែនាំ & ជំនួយ", "/help"]:
                 await help_command(update, context, send_to_user_id=user.id)
-            elif text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
+            elif base_cmd in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
                 await status_command(update, context)
-            elif text in ["🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id"]:
+            elif base_cmd in ["🆔 មើលលេខ ID", "🆔 មើលលេខ ID Group", "/myid", "/id"]:
                 await myid_command(update, context)
-            elif text in ["/remind_admins", "/remind", "🔔 ដាស់តឿនក្រុមមិនទាន់ Promote"]:
+            elif base_cmd in ["/remind_admins", "/remind", "🔔 ដាស់តឿនក្រុមមិនទាន់ Promote"]:
                 await remind_admins_command(update, context)
             return
 

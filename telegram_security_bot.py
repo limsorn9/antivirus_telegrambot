@@ -717,6 +717,16 @@ async def send_auto_delete_message(context: ContextTypes.DEFAULT_TYPE, chat_id: 
         logger.error(f"Error sending auto-delete message: {e}")
         return None
 
+async def send_auto_delete_photo(context: ContextTypes.DEFAULT_TYPE, chat_id: int, photo: str, caption: str, delay: int = BOT_MSG_DELETE_SECONDS, **kwargs):
+    try:
+        msg = await context.bot.send_photo(chat_id=chat_id, photo=photo, caption=caption, **kwargs)
+        if msg:
+            asyncio.create_task(delete_message_after_delay(context.bot, chat_id, msg.message_id, delay))
+            PENDING_BOT_DELETIONS.append((chat_id, msg.message_id, time.time() + delay))
+        return msg
+    except Exception as e:
+        logger.error(f"Error sending auto-delete photo: {e}")
+        return None
 
 # -------------------------------------------------------------
 # 🧹 COMMAND AUTO-CLEAN ENGINE (លុបពាក្យបញ្ជា និងលុបការឆ្លើយតបចាស់ៗ)
@@ -1451,13 +1461,31 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
             f"*(សារនេះនឹងរលាយបាត់ទៅវិញស្វ័យប្រវត្តិក្នងរយៈពេល ៦០ វិនាទី)*"
         )
 
-        await send_auto_delete_message(
-            context,
-            chat_id=chat.id,
-            text=warning_text,
-            delay=BOT_MSG_DELETE_SECONDS,
-            parse_mode=ParseMode.MARKDOWN
-        )
+        photo_file_id = None
+        try:
+            user_profile_photos = await context.bot.get_user_profile_photos(sender.id, limit=1)
+            if user_profile_photos.total_count > 0:
+                photo_file_id = user_profile_photos.photos[0][-1].file_id
+        except Exception as e:
+            logger.error(f"Cannot get user profile photo: {e}")
+
+        if photo_file_id:
+            await send_auto_delete_photo(
+                context,
+                chat_id=chat.id,
+                photo=photo_file_id,
+                caption=warning_text,
+                delay=BOT_MSG_DELETE_SECONDS,
+                parse_mode=ParseMode.MARKDOWN
+            )
+        else:
+            await send_auto_delete_message(
+                context,
+                chat_id=chat.id,
+                text=warning_text,
+                delay=BOT_MSG_DELETE_SECONDS,
+                parse_mode=ParseMode.MARKDOWN
+            )
         return
 
     # ករណីទី ២៖ Archive File (.zip, .rar) -> VirusTotal
@@ -1497,13 +1525,32 @@ async def handle_incoming_file(update: Update, context: ContextTypes.DEFAULT_TYP
                     f"⚡ **ចំណាត់ការ:** សារត្រូវបានលុប | {action_taken}\n\n"
                     f"*(សារនេះនឹងរលាយបាត់ទៅវិញក្នុងរយៈពេល ៦០ វិនាទី)*"
                 )
-                await send_auto_delete_message(
-                    context,
-                    chat_id=chat.id,
-                    text=warning_text,
-                    delay=BOT_MSG_DELETE_SECONDS,
-                    parse_mode=ParseMode.MARKDOWN
-                )
+
+                photo_file_id = None
+                try:
+                    user_profile_photos = await context.bot.get_user_profile_photos(sender.id, limit=1)
+                    if user_profile_photos.total_count > 0:
+                        photo_file_id = user_profile_photos.photos[0][-1].file_id
+                except Exception as e:
+                    logger.error(f"Cannot get user profile photo: {e}")
+
+                if photo_file_id:
+                    await send_auto_delete_photo(
+                        context,
+                        chat_id=chat.id,
+                        photo=photo_file_id,
+                        caption=warning_text,
+                        delay=BOT_MSG_DELETE_SECONDS,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
+                else:
+                    await send_auto_delete_message(
+                        context,
+                        chat_id=chat.id,
+                        text=warning_text,
+                        delay=BOT_MSG_DELETE_SECONDS,
+                        parse_mode=ParseMode.MARKDOWN
+                    )
         except Exception as e:
             logger.error(f"Error inspecting archive: {e}")
 

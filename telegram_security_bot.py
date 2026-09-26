@@ -1907,6 +1907,8 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
                 return
             WAITING_FOR_GROUP_ID.pop(user.id, None)
             await process_manual_add_group(context, user.id, text, user_message=update.effective_message)
+            return
+
         if any(w in text.lower() for w in ["លុបប៊ូតុង", "remove keyboard", "clear button", "/clean"]):
             await clean_keyboard_command(update, context)
             return

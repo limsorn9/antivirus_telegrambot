@@ -2009,6 +2009,17 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if is_owner:
+        # ផ្ញើសារទី ១ ដើម្បើបើកប៊ូតុងខាងក្រោមឆាត (Reply Keyboard)
+        try:
+            await context.bot.send_message(
+                chat_id=chat.id,
+                text="✅ **កំពុងរៀបចំប៊ូតុងបញ្ជាខាងក្រោមឆាត...**",
+                reply_markup=get_master_owner_keyboard(),
+                parse_mode=ParseMode.MARKDOWN
+            )
+        except Exception:
+            pass
+
         text = (
             f"👑 **សូមស្វាគមន៍ម្ចាស់ Bot ផ្ទាល់! (Sole Master Owner - ID: `{user.id}`)**\n\n"
             "🎛️ **ផ្ទាំងបញ្ជាគ្រប់គ្រងពេញលេញ (100% Full Commercial & CRM Control)៖**\n"
@@ -2017,7 +2028,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "• ចុច **[ 📜 ប្រវត្តិការពារ & ការទិញបត ]** ➡️ មើល Logs មេរោគ និងប្រវត្តិទិញបត\n"
             f"• ចុច **[ 📢 ផ្សាយពាណិជ្ជកម្មទៅ Channel ]** ➡️ ផ្សាយទៅ Channel `{OFFICIAL_CHANNEL_USERNAME}`\n"
             "• ចុច **[ 🚀 ចាប់ផ្ដើម Bot ឡើងវិញ (/start) ]** ➡️ Reload ផ្ទាំងបញ្ជា\n\n"
-            "👇 **សូមចុចលើប៊ូតុង Dashboard ខាងក្រោម ឬចុចលើ Menu (ឆ្វេងដៃក្រោម) ដើម្បីជ្រើសរើសមុខងារ៖**"
+            "👇 **សូមចុចលើប៊ូតុង Dashboard ខាងក្រោម ឬប៊ូតុងខាងក្រោមឆាត ដើម្បីជ្រើសរើសមុខងារ៖**"
         )
         await send_clean_command_response(
             context,

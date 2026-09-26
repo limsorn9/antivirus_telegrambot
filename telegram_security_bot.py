@@ -663,6 +663,10 @@ async def is_client_group_admin(update: Update, context: ContextTypes.DEFAULT_TY
     if chat.type == "private":
         return False
 
+    # អនុញ្ញាតសម្រាប់ Anonymous Admin ក្នុង Group
+    if update.effective_message and update.effective_message.sender_chat and update.effective_message.sender_chat.id == chat.id:
+        return True
+
     try:
         member = await context.bot.get_chat_member(chat_id=chat.id, user_id=user.id)
         return member.status in ["creator", "administrator"]
@@ -1952,7 +1956,7 @@ async def handle_regular_messages(update: Update, context: ContextTypes.DEFAULT_
 
     # 3. ករណី Client Group Admin ប្រើក្នុង Group របស់ពួកគេ (មានសិទ្ធិតែ /status ប៉ុណ្ណោះ)
     if is_admin and chat.type in ["group", "supergroup"]:
-        if text in ["🛡️ ឆែកស្ថានភាព Bot", "/status", "/check"]:
+        if text in ["🛡️ ឆែកស្ថានភាព Bot"] or text.startswith("/status") or text.startswith("/check"):
             await status_command(update, context)
             return
         if text.startswith("/"):
